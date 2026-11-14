@@ -36,7 +36,7 @@ const WORKFLOWS: Record<WorkflowKey, { name: string; body: string }> = {
   },
   "open-refund-request": {
     name: "New Open Refund Request",
-    body: "{{ actor.name }} asked for a Refund on {{ data.course_title }}.",
+    body: "{{ actor.name }} raised a Refund Request for {{ data.course_title }}.",
   },
   "seat-claimed": {
     name: "Claimed Seat",

@@ -1,11 +1,19 @@
 import { generateKeyPairSync, verify } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import {
+  archiveOpenRefundRequestNotifications,
   feedUserToken,
   fireAndForget,
   notifyDiscussionReply,
+  notifyOpenRefundRequest,
   type UserTokens,
 } from "./notifications.server";
+import {
+  approveRefundRequest,
+  declineRefundRequest,
+  raiseRefundRequest,
+} from "./refunds.server";
 import { recordingNotificationGateway } from "~/test/recording-notification-gateway";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
@@ -185,6 +193,239 @@ describe("notifyDiscussionReply", () => {
       },
     ]);
   });
+});
+
+// ─── Open Refund Request ───
+
+describe("notifyOpenRefundRequest", () => {
+  // Pat Admin is 5 and Alex Rivera is 6.
+  let pat: User;
+  let alex: User;
+
+  beforeEach(() => {
+    pat = addPlatformAdmin("Pat Admin", "pat@example.com");
+    alex = addPlatformAdmin("Alex Rivera", "alex@example.com");
+  });
+
+  function addPlatformAdmin(name: string, email: string) {
+    return db
+      .insert(schema.users)
+      .values({ name, email, role: UserRole.Admin })
+      .returning()
+      .get();
+  }
+
+  function buy(buyer: User, amountPaid: number, seats = 0) {
+    const purchase = db
+      .insert(schema.purchases)
+      .values({ userId: buyer.id, courseId: base.course.id, amountPaid })
+      .returning()
+      .get();
+    if (seats > 0) {
+      const team = db.insert(schema.teams).values({}).returning().get();
+      for (let i = 0; i < seats; i++) {
+        db.insert(schema.coupons)
+          .values({
+            teamId: team.id,
+            courseId: base.course.id,
+            code: `SEAT-${purchase.id}-${i}`,
+            purchaseId: purchase.id,
+          })
+          .run();
+      }
+    }
+    return purchase;
+  }
+
+  function raise(buyer: User, purchaseId: number, reason: string) {
+    const result = raiseRefundRequest(
+      db,
+      purchaseId,
+      buyer.id,
+      reason,
+      new Date()
+    );
+    if (!result.ok) throw new Error(result.error);
+    return result.refundRequestId;
+  }
+
+  it("tells every Platform Admin that a buyer raised a Refund Request", async () => {
+    const purchase = buy(emma, 7900);
+    const refundRequestId = raise(
+      emma,
+      purchase.id,
+      "The course  isn't what\n\nI expected."
+    );
+    const gateway = recordingNotificationGateway();
+
+    await notifyOpenRefundRequest(gateway, db, refundRequestId);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "open-refund-request",
+          recipients: [
+            { id: "5", name: "Pat Admin", email: "pat@example.com" },
+            { id: "6", name: "Alex Rivera", email: "alex@example.com" },
+          ],
+          actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+          data: {
+            refund_request_id: 1,
+            purchase_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            purchase_kind: "individual_purchase",
+            amount_cents: 7900,
+            reason: "The course isn't what I expected.",
+            url: "/admin/refunds",
+          },
+          idempotencyKey: "open-refund-request:1",
+        },
+      },
+    ]);
+  });
+
+  it("says a Refund Request on a Team Licence is for a Team Licence, and cuts a long reason", async () => {
+    const purchase = buy(james, 39500, 5);
+    const refundRequestId = raise(
+      james,
+      purchase.id,
+      "We bought Seats for the whole team, but the project was cancelled before anyone started, so none of the Seats will ever be claimed by anyone."
+    );
+    const gateway = recordingNotificationGateway();
+
+    await notifyOpenRefundRequest(gateway, db, refundRequestId);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "open-refund-request",
+          recipients: [
+            { id: "5", name: "Pat Admin", email: "pat@example.com" },
+            { id: "6", name: "Alex Rivera", email: "alex@example.com" },
+          ],
+          actor: { id: "4", name: "James Park", email: "james@example.com" },
+          data: {
+            refund_request_id: 1,
+            purchase_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            purchase_kind: "team_licence",
+            amount_cents: 39500,
+            reason:
+              "We bought Seats for the whole team, but the project was cancelled before anyone started, so none of the Seats will ever be claimed by anyon…",
+            url: "/admin/refunds",
+          },
+          idempotencyKey: "open-refund-request:1",
+        },
+      },
+    ]);
+  });
+
+  it("doesn't tell a Platform Admin about a Refund Request they raised themselves", async () => {
+    const purchase = buy(pat, 7900);
+    const refundRequestId = raise(pat, purchase.id, "Bought it by mistake.");
+    const gateway = recordingNotificationGateway();
+
+    await notifyOpenRefundRequest(gateway, db, refundRequestId);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "open-refund-request",
+          recipients: [
+            { id: "6", name: "Alex Rivera", email: "alex@example.com" },
+          ],
+          actor: { id: "5", name: "Pat Admin", email: "pat@example.com" },
+          data: {
+            refund_request_id: 1,
+            purchase_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            purchase_kind: "individual_purchase",
+            amount_cents: 7900,
+            reason: "Bought it by mistake.",
+            url: "/admin/refunds",
+          },
+          idempotencyKey: "open-refund-request:1",
+        },
+      },
+    ]);
+  });
+
+  it("tells nobody when the only Platform Admin raised the Refund Request", async () => {
+    db.update(schema.users)
+      .set({ role: UserRole.Student })
+      .where(eq(schema.users.id, alex.id))
+      .run();
+    const purchase = buy(pat, 7900);
+    const refundRequestId = raise(pat, purchase.id, "Bought it by mistake.");
+    const gateway = recordingNotificationGateway();
+
+    await notifyOpenRefundRequest(gateway, db, refundRequestId);
+
+    expect(gateway.calls).toEqual([]);
+  });
+});
+
+describe("archiveOpenRefundRequestNotifications", () => {
+  it.each([
+    ["approved", approveRefundRequest],
+    ["declined", declineRefundRequest],
+  ] as const)(
+    "archives every Platform Admin's copy once a Refund Request is %s",
+    async (_decision, decide) => {
+      const platformAdmin = db
+        .insert(schema.users)
+        .values({
+          name: "Pat Admin",
+          email: "pat@example.com",
+          role: UserRole.Admin,
+        })
+        .returning()
+        .get();
+      const purchase = db
+        .insert(schema.purchases)
+        .values({ userId: emma.id, courseId: base.course.id, amountPaid: 7900 })
+        .returning()
+        .get();
+      const raised = raiseRefundRequest(
+        db,
+        purchase.id,
+        emma.id,
+        "Bought it by mistake.",
+        new Date()
+      );
+      if (!raised.ok) throw new Error(raised.error);
+      const decided = decide(
+        db,
+        raised.refundRequestId,
+        platformAdmin.id,
+        "Thanks for letting us know.",
+        new Date()
+      );
+      if (!decided.ok) throw new Error(decided.error);
+      const gateway = recordingNotificationGateway();
+
+      await archiveOpenRefundRequestNotifications(
+        gateway,
+        raised.refundRequestId
+      );
+
+      expect(gateway.calls).toEqual([
+        {
+          method: "archiveFeedMessages",
+          input: {
+            workflow: "open-refund-request",
+            triggerData: { refund_request_id: 1 },
+          },
+        },
+      ]);
+    }
+  );
 });
 
 // Swaps console.error for a hand-written recorder while `run` executes.
