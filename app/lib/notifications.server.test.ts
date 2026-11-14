@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   feedUserToken,
   fireAndForget,
+  notifyDiscussionQuestion,
   notifyDiscussionReply,
   type UserTokens,
 } from "./notifications.server";
@@ -185,6 +186,94 @@ describe("notifyDiscussionReply", () => {
         },
       },
     ]);
+  });
+});
+
+describe("notifyDiscussionQuestion", () => {
+  it("tells the course's Instructor about a Student's Discussion Question", async () => {
+    const question = postComment(emma, "How do  generics work\n\nwith arrays?");
+    const gateway = recordingNotificationGateway();
+
+    await notifyDiscussionQuestion(gateway, db, question.id);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "discussion-question",
+          recipients: [
+            {
+              id: "2",
+              name: "Test Instructor",
+              email: "instructor@example.com",
+            },
+          ],
+          actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+          data: {
+            comment_id: 1,
+            lesson_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            lesson_title: "Generics",
+            excerpt: "How do generics work with arrays?",
+            url: "/courses/test-course/lessons/1",
+          },
+          idempotencyKey: "discussion-question:1",
+        },
+      },
+    ]);
+  });
+
+  it("tells the Instructor about a Platform Admin's Discussion Question too", async () => {
+    const admin = db
+      .insert(schema.users)
+      .values({
+        name: "Pat Admin",
+        email: "pat@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const question = postComment(admin, "Is this lesson up to date?");
+    const gateway = recordingNotificationGateway();
+
+    await notifyDiscussionQuestion(gateway, db, question.id);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "discussion-question",
+          recipients: [
+            {
+              id: "2",
+              name: "Test Instructor",
+              email: "instructor@example.com",
+            },
+          ],
+          actor: { id: "5", name: "Pat Admin", email: "pat@example.com" },
+          data: {
+            comment_id: 1,
+            lesson_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            lesson_title: "Generics",
+            excerpt: "Is this lesson up to date?",
+            url: "/courses/test-course/lessons/1",
+          },
+          idempotencyKey: "discussion-question:1",
+        },
+      },
+    ]);
+  });
+
+  it("tells nobody about the Instructor's own top-level comment on their lesson", async () => {
+    const comment = postComment(base.instructor, "Welcome to the lesson!");
+    const gateway = recordingNotificationGateway();
+
+    await notifyDiscussionQuestion(gateway, db, comment.id);
+
+    expect(gateway.calls).toEqual([]);
   });
 });
 

@@ -6,7 +6,10 @@ import { getCurrentUserId } from "~/lib/session";
 import { getAccess, requireContentAccess } from "~/lib/access.server";
 import { renderComment } from "~/lib/comment-markdown.server";
 import { notificationGateway } from "~/lib/knock.server";
-import { notifyDiscussionReply } from "~/lib/notifications.server";
+import {
+  notifyDiscussionQuestion,
+  notifyDiscussionReply,
+} from "~/lib/notifications.server";
 import {
   CommentThread,
   type RenderedComment,
@@ -911,6 +914,8 @@ export async function action({ params, request }: Route.ActionArgs) {
         // Not awaited: Knock never holds up or fails posting a comment.
         if (comment.parentId !== null) {
           void notifyDiscussionReply(notificationGateway(), db, comment.id);
+        } else {
+          void notifyDiscussionQuestion(notificationGateway(), db, comment.id);
         }
         return { ok: true };
       }

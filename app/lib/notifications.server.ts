@@ -143,6 +143,60 @@ export function notifyDiscussionReply(
   );
 }
 
+// ─── Discussion Question ───
+
+const instructors = alias(users, "instructors");
+
+/**
+ * Tells the course's Instructor that someone else asked a Discussion Question
+ * on one of their lessons. The Instructor's own top-level comment isn't a
+ * Discussion Question: they are the actor, so nobody is left to tell.
+ */
+export function notifyDiscussionQuestion(
+  gateway: NotificationGateway,
+  db: Db,
+  commentId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "discussion-question", domainId: commentId },
+    async () => {
+      const question = db
+        .select({
+          comment: comments,
+          asker: users,
+          instructor: instructors,
+          lesson: lessons,
+          course: courses,
+        })
+        .from(comments)
+        .innerJoin(users, eq(comments.userId, users.id))
+        .innerJoin(lessons, eq(comments.lessonId, lessons.id))
+        .innerJoin(modules, eq(lessons.moduleId, modules.id))
+        .innerJoin(courses, eq(modules.courseId, courses.id))
+        .innerJoin(instructors, eq(courses.instructorId, instructors.id))
+        .where(eq(comments.id, commentId))
+        .get();
+      if (!question) return;
+
+      await sendNotification(gateway, {
+        workflow: "discussion-question",
+        domainId: question.comment.id,
+        recipients: [question.instructor],
+        actor: question.asker,
+        data: {
+          comment_id: question.comment.id,
+          lesson_id: question.lesson.id,
+          course_id: question.course.id,
+          course_title: question.course.title,
+          lesson_title: question.lesson.title,
+          excerpt: snippet(question.comment.body),
+          url: lessonUrl(question.course.slug, question.lesson.id),
+        },
+      });
+    }
+  );
+}
+
 // ─── Feed user token ───
 // Knock's enhanced security mode only lets the browser read a Notification
 // Feed with a token Cadence signed for that user. Signing is local crypto, not

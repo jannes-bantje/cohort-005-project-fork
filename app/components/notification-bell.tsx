@@ -7,7 +7,13 @@ import Knock, {
   type FeedItem,
   type FeedStoreState,
 } from "@knocklabs/client";
-import { Bell, MessageSquareReply, X, type LucideIcon } from "lucide-react";
+import {
+  Bell,
+  MessageCircleQuestion,
+  MessageSquareReply,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type { NotificationFeedAuth } from "~/lib/knock.server";
 import {
   notificationRow,
@@ -36,6 +42,10 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
   "discussion-reply": {
     Icon: MessageSquareReply,
     tint: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300",
+  },
+  "discussion-question": {
+    Icon: MessageCircleQuestion,
+    tint: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300",
   },
   notification: {
     Icon: Bell,
