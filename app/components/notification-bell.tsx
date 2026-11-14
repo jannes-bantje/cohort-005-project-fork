@@ -9,6 +9,7 @@ import {
   Bell,
   MessageCircleQuestion,
   MessageSquareReply,
+  Receipt,
   type LucideIcon,
 } from "lucide-react";
 import type { NotificationFeedAuth } from "~/lib/knock.server";
@@ -41,6 +42,10 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
   "discussion-question": {
     Icon: MessageCircleQuestion,
     tint: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300",
+  },
+  "open-refund-request": {
+    Icon: Receipt,
+    tint: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
   },
   notification: {
     Icon: Bell,

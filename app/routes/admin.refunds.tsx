@@ -22,6 +22,8 @@ import {
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 import { sendEmail } from "~/lib/mailer.server";
+import { notificationGateway } from "~/lib/knock.server";
+import { archiveOpenRefundRequestNotifications } from "~/lib/notifications.server";
 
 const refundFilterSchema = z
   .nativeEnum(RefundStatus)
@@ -126,6 +128,13 @@ export async function action({ request }: Route.ActionArgs) {
   if (!result.ok) {
     return data({ error: result.error }, { status: result.status });
   }
+
+  // Once decided, nobody needs the Open Refund Request Notification any more.
+  // Not awaited: Knock never holds up or fails a decision.
+  void archiveOpenRefundRequestNotifications(
+    notificationGateway(),
+    refundRequestId
+  );
 
   await sendEmail(result.email);
 

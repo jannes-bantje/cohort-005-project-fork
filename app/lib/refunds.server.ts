@@ -69,7 +69,7 @@ function getPurchase(db: Queryable, purchaseId: number) {
   return db.select().from(purchases).where(eq(purchases.id, purchaseId)).get();
 }
 
-function getSeats(db: Queryable, purchaseId: number): Seat[] {
+export function getSeats(db: Queryable, purchaseId: number): Seat[] {
   return db
     .select()
     .from(coupons)
@@ -85,7 +85,7 @@ function isClaimed(seat: Seat) {
 // Purchase that granted Seats, and every Team Licence grants at least one.
 export type PurchaseKind = "individual_purchase" | "team_licence";
 
-function kindOf(seats: Seat[]): PurchaseKind {
+export function kindOf(seats: Seat[]): PurchaseKind {
   return seats.length > 0 ? "team_licence" : "individual_purchase";
 }
 

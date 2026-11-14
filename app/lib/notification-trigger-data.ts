@@ -55,6 +55,18 @@ const discussionQuestionData = z.object({
   url: appPath,
 });
 
+const openRefundRequestData = z.object({
+  refund_request_id: id,
+  purchase_id: id,
+  course_id: id,
+  course_title: z.string(),
+  purchase_kind: z.enum(["individual_purchase", "team_licence"]),
+  /** What the buyer paid for the Purchase, in integer cents. */
+  amount_cents: z.number().int(),
+  reason: snippetText,
+  url: appPath,
+});
+
 export const triggerDataSchema = z.discriminatedUnion("workflow", [
   z.object({
     workflow: z.literal("discussion-reply"),
@@ -63,6 +75,10 @@ export const triggerDataSchema = z.discriminatedUnion("workflow", [
   z.object({
     workflow: z.literal("discussion-question"),
     data: discussionQuestionData,
+  }),
+  z.object({
+    workflow: z.literal("open-refund-request"),
+    data: openRefundRequestData,
   }),
 ]);
 

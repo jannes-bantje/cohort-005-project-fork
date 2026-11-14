@@ -1,7 +1,16 @@
 import { sign } from "node:crypto";
 import { alias } from "drizzle-orm/sqlite-core";
 import { eq } from "drizzle-orm";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import {
+  comments,
+  courses,
+  lessons,
+  modules,
+  purchases,
+  refunds,
+  UserRole,
+  users,
+} from "~/db/schema";
 import type {
   NotificationGateway,
   NotificationUser,
@@ -12,7 +21,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import type { Db } from "~/lib/refunds.server";
+import { getSeats, kindOf, type Db } from "~/lib/refunds.server";
 
 // ─── Notifications ───
 // Telling people that something which concerns them has happened, through
@@ -194,6 +203,84 @@ export function notifyDiscussionQuestion(
         },
       });
     }
+  );
+}
+
+// ─── Open Refund Request ───
+
+/**
+ * Tells every Platform Admin that a buyer raised a Refund Request, so whoever
+ * is around can decide it. A Platform Admin who raised their own request isn't
+ * told about it.
+ */
+export function notifyOpenRefundRequest(
+  gateway: NotificationGateway,
+  db: Db,
+  refundRequestId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "open-refund-request", domainId: refundRequestId },
+    async () => {
+      const refundRequest = db
+        .select({
+          refund: refunds,
+          purchase: purchases,
+          buyer: users,
+          course: courses,
+        })
+        .from(refunds)
+        .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+        .innerJoin(users, eq(purchases.userId, users.id))
+        .innerJoin(courses, eq(purchases.courseId, courses.id))
+        .where(eq(refunds.id, refundRequestId))
+        .get();
+      if (!refundRequest) return;
+
+      const { refund, purchase, buyer, course } = refundRequest;
+      const platformAdmins = db
+        .select()
+        .from(users)
+        .where(eq(users.role, UserRole.Admin))
+        .orderBy(users.id)
+        .all();
+
+      await sendNotification(gateway, {
+        workflow: "open-refund-request",
+        domainId: refund.id,
+        recipients: platformAdmins,
+        actor: buyer,
+        data: {
+          refund_request_id: refund.id,
+          purchase_id: purchase.id,
+          course_id: course.id,
+          course_title: course.title,
+          purchase_kind: kindOf(getSeats(db, purchase.id)),
+          amount_cents: purchase.amountPaid,
+          reason: snippet(refund.reason),
+          url: "/admin/refunds",
+        },
+      });
+    }
+  );
+}
+
+/**
+ * Archives every Platform Admin's Open Refund Request Notification for a
+ * Refund Request once one of them has decided it, the decider's copy
+ * included. The bell drops them on its next open. Copies Knock delivers after
+ * this stay in the feed.
+ */
+export function archiveOpenRefundRequestNotifications(
+  gateway: NotificationGateway,
+  refundRequestId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "open-refund-request", domainId: refundRequestId },
+    () =>
+      gateway.archiveFeedMessages({
+        workflow: "open-refund-request",
+        triggerData: { refund_request_id: refundRequestId },
+      })
   );
 }
 
