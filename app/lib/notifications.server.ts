@@ -24,7 +24,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import { getSeats, kindOf, type Db } from "~/lib/refunds.server";
+import { getSeats, isClaimed, kindOf, type Db } from "~/lib/refunds.server";
 
 // ─── Notifications ───
 // Telling people that something which concerns them has happened, through
@@ -455,7 +455,7 @@ export function notifySeatClaimed(
 
       const licenceSeats = getSeats(db, claim.seat.purchaseId);
       const unclaimedSeats = licenceSeats.filter(
-        (seat) => seat.redeemedAt === null && seat.refundedAt === null
+        (seat) => !isClaimed(seat) && seat.refundedAt === null
       ).length;
 
       await sendNotification(gateway, {
@@ -493,7 +493,7 @@ export function notifyNewEnrollment(
   return fireAndForget(
     { workflow: "new-enrollment", domainId: enrollmentId },
     async () => {
-      const found = db
+      const newEnrollment = db
         .select({
           enrollment: enrollments,
           student: users,
@@ -506,18 +506,18 @@ export function notifyNewEnrollment(
         .innerJoin(instructors, eq(courses.instructorId, instructors.id))
         .where(eq(enrollments.id, enrollmentId))
         .get();
-      if (!found) return;
+      if (!newEnrollment) return;
 
       await sendNotification(gateway, {
         workflow: "new-enrollment",
-        domainId: found.enrollment.id,
-        recipients: [found.instructor],
-        actor: found.student,
+        domainId: newEnrollment.enrollment.id,
+        recipients: [newEnrollment.instructor],
+        actor: newEnrollment.student,
         data: {
-          enrollment_id: found.enrollment.id,
-          course_id: found.course.id,
-          course_title: found.course.title,
-          url: `/instructor/${found.course.id}/students`,
+          enrollment_id: newEnrollment.enrollment.id,
+          course_id: newEnrollment.course.id,
+          course_title: newEnrollment.course.title,
+          url: `/instructor/${newEnrollment.course.id}/students`,
         },
       });
     }

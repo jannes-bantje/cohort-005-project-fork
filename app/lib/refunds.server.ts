@@ -77,7 +77,7 @@ export function getSeats(db: Queryable, purchaseId: number): Seat[] {
     .all();
 }
 
-function isClaimed(seat: Seat) {
+export function isClaimed(seat: Seat) {
   return seat.redeemedAt !== null;
 }
 
