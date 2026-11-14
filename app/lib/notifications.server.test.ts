@@ -7,7 +7,9 @@ import {
   fireAndForget,
   notifyDiscussionQuestion,
   notifyDiscussionReply,
+  notifyNewEnrollment,
   notifyOpenRefundRequest,
+  notifySeatClaimed,
   type UserTokens,
 } from "./notifications.server";
 import {
@@ -516,6 +518,263 @@ describe("archiveOpenRefundRequestNotifications", () => {
       ]);
     }
   );
+});
+
+// ─── Claimed Seat and New Enrollment ───
+
+// A Team Licence on Test Course with `seats` Unclaimed Seats.
+function buyTeamLicence(buyer: User, seats: number) {
+  const team = db.insert(schema.teams).values({}).returning().get();
+  const purchase = db
+    .insert(schema.purchases)
+    .values({ userId: buyer.id, courseId: base.course.id, amountPaid: 7900 })
+    .returning()
+    .get();
+  const seatRows = Array.from({ length: seats }, (_, i) =>
+    db
+      .insert(schema.coupons)
+      .values({
+        teamId: team.id,
+        courseId: base.course.id,
+        code: `SEAT-${purchase.id}-${i}`,
+        purchaseId: purchase.id,
+      })
+      .returning()
+      .get()
+  );
+  return { purchase, seats: seatRows };
+}
+
+// Claims a Seat the way the redeem-code action does, returning the Enrollment.
+function claimSeat(seat: { id: number }, student: User) {
+  db.update(schema.coupons)
+    .set({ redeemedByUserId: student.id, redeemedAt: "2026-11-14T10:00:00Z" })
+    .where(eq(schema.coupons.id, seat.id))
+    .run();
+  return enroll(student);
+}
+
+function enroll(student: User) {
+  return db
+    .insert(schema.enrollments)
+    .values({ userId: student.id, courseId: base.course.id })
+    .returning()
+    .get();
+}
+
+describe("notifySeatClaimed", () => {
+  it("tells the Team Admin who claimed a Seat and how many Seats are still unclaimed", async () => {
+    const ava = addStudent("Ava Nakamura", "ava@example.com");
+    const licence = buyTeamLicence(ava, 10);
+    claimSeat(licence.seats[0], james);
+    claimSeat(licence.seats[2], emma);
+    const gateway = recordingNotificationGateway();
+
+    await notifySeatClaimed(gateway, db, licence.seats[2].id);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "seat-claimed",
+          recipients: [
+            { id: "5", name: "Ava Nakamura", email: "ava@example.com" },
+          ],
+          actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+          data: {
+            seat_id: 3,
+            purchase_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            unclaimed_seats: 8,
+            seats_total: 10,
+            url: "/team",
+          },
+          idempotencyKey: "seat-claimed:3",
+        },
+      },
+    ]);
+  });
+
+  it("counts Seats only on the Team Licence the Seat came from", async () => {
+    const ava = addStudent("Ava Nakamura", "ava@example.com");
+    const first = buyTeamLicence(ava, 3);
+    const second = buyTeamLicence(ava, 5);
+    claimSeat(first.seats[0], james);
+    claimSeat(second.seats[0], emma);
+    const gateway = recordingNotificationGateway();
+
+    await notifySeatClaimed(gateway, db, second.seats[0].id);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "seat-claimed",
+          recipients: [
+            { id: "5", name: "Ava Nakamura", email: "ava@example.com" },
+          ],
+          actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+          data: {
+            seat_id: 4,
+            purchase_id: 2,
+            course_id: 1,
+            course_title: "Test Course",
+            unclaimed_seats: 4,
+            seats_total: 5,
+            url: "/team",
+          },
+          idempotencyKey: "seat-claimed:4",
+        },
+      },
+    ]);
+  });
+
+  it("tells nobody when the Team Admin claims a Seat on their own Team Licence", async () => {
+    const ava = addStudent("Ava Nakamura", "ava@example.com");
+    const licence = buyTeamLicence(ava, 2);
+    claimSeat(licence.seats[0], ava);
+    const gateway = recordingNotificationGateway();
+
+    await notifySeatClaimed(gateway, db, licence.seats[0].id);
+
+    expect(gateway.calls).toEqual([]);
+  });
+});
+
+// An Individual Purchase of Test Course, which gives the buyer an Enrollment.
+function buyForSelf(student: User) {
+  const purchase = db
+    .insert(schema.purchases)
+    .values({ userId: student.id, courseId: base.course.id, amountPaid: 7900 })
+    .returning()
+    .get();
+  return { purchase, enrollment: enroll(student) };
+}
+
+const newEnrollmentForEmma = (enrollmentId: number) => ({
+  method: "trigger",
+  input: {
+    workflow: "new-enrollment",
+    recipients: [
+      { id: "2", name: "Test Instructor", email: "instructor@example.com" },
+    ],
+    actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+    data: {
+      enrollment_id: enrollmentId,
+      course_id: 1,
+      course_title: "Test Course",
+      url: "/instructor/1/students",
+    },
+    idempotencyKey: `new-enrollment:${enrollmentId}`,
+  },
+});
+
+describe("notifyNewEnrollment", () => {
+  it("tells the course's Instructor about an Individual Purchase", async () => {
+    const { enrollment } = buyForSelf(emma);
+    const gateway = recordingNotificationGateway();
+
+    await notifyNewEnrollment(gateway, db, enrollment.id);
+
+    expect(gateway.calls).toEqual([newEnrollmentForEmma(1)]);
+  });
+
+  it("tells the Instructor when a Lapsed Student enrolls again", async () => {
+    const platformAdmin = db
+      .insert(schema.users)
+      .values({
+        name: "Pat Admin",
+        email: "pat@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const { purchase } = buyForSelf(emma);
+    const now = new Date();
+    const raised = raiseRefundRequest(
+      db,
+      purchase.id,
+      emma.id,
+      "I bought the wrong course by mistake.",
+      now
+    );
+    if (!raised.ok) throw new Error(raised.error);
+    approveRefundRequest(
+      db,
+      raised.refundRequestId,
+      platformAdmin.id,
+      null,
+      now
+    );
+    const { enrollment } = buyForSelf(emma);
+    const gateway = recordingNotificationGateway();
+
+    await notifyNewEnrollment(gateway, db, enrollment.id);
+
+    expect(gateway.calls).toEqual([newEnrollmentForEmma(2)]);
+  });
+
+  it("tells the Team Admin and the Instructor when a Student claims a Seat", async () => {
+    const ava = addStudent("Ava Nakamura", "ava@example.com");
+    const licence = buyTeamLicence(ava, 10);
+    claimSeat(licence.seats[0], james);
+    claimSeat(licence.seats[1], base.user);
+    const enrollment = claimSeat(licence.seats[2], emma);
+    const gateway = recordingNotificationGateway();
+
+    // What the redeem-code action fires for a Seat claim.
+    await Promise.all([
+      notifySeatClaimed(gateway, db, licence.seats[2].id),
+      notifyNewEnrollment(gateway, db, enrollment.id),
+    ]);
+
+    expect(gateway.calls).toEqual([
+      {
+        method: "trigger",
+        input: {
+          workflow: "seat-claimed",
+          recipients: [
+            { id: "5", name: "Ava Nakamura", email: "ava@example.com" },
+          ],
+          actor: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+          data: {
+            seat_id: 3,
+            purchase_id: 1,
+            course_id: 1,
+            course_title: "Test Course",
+            unclaimed_seats: 7,
+            seats_total: 10,
+            url: "/team",
+          },
+          idempotencyKey: "seat-claimed:3",
+        },
+      },
+      newEnrollmentForEmma(3),
+    ]);
+  });
+
+  it("still tells the Instructor when a Team Admin claims a Seat on their own Team Licence", async () => {
+    const licence = buyTeamLicence(emma, 2);
+    const enrollment = claimSeat(licence.seats[0], emma);
+    const gateway = recordingNotificationGateway();
+
+    await Promise.all([
+      notifySeatClaimed(gateway, db, licence.seats[0].id),
+      notifyNewEnrollment(gateway, db, enrollment.id),
+    ]);
+
+    expect(gateway.calls).toEqual([newEnrollmentForEmma(1)]);
+  });
+
+  it("tells nobody when the Instructor enrolls in their own course", async () => {
+    const enrollment = enroll(base.instructor);
+    const gateway = recordingNotificationGateway();
+
+    await notifyNewEnrollment(gateway, db, enrollment.id);
+
+    expect(gateway.calls).toEqual([]);
+  });
 });
 
 // Swaps console.error for a hand-written recorder while `run` executes.

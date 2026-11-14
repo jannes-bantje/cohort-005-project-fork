@@ -138,6 +138,75 @@ describe("notificationRow", () => {
     });
   });
 
+  it("renders a Claimed Seat with the Team Licence's Unclaimed Seats", () => {
+    const row = notificationRow({
+      workflow: "seat-claimed",
+      data: {
+        seat_id: 21,
+        purchase_id: 4,
+        course_id: 2,
+        course_title: "Building REST APIs with Node.js",
+        unclaimed_seats: 3,
+        seats_total: 10,
+        url: "/team",
+      },
+      actorName: "Olivia Martinez",
+      insertedAt: "2026-11-14T11:30:00Z",
+    });
+
+    expect(row).toEqual({
+      icon: "seat-claimed",
+      title: "Olivia Martinez claimed a Seat",
+      details: ["Building REST APIs with Node.js", "3 of 10 Seats unclaimed"],
+      time: "30m ago",
+      url: "/team",
+    });
+  });
+
+  it("says Seat, not Seats, for a Team Licence with one Seat", () => {
+    const row = notificationRow({
+      workflow: "seat-claimed",
+      data: {
+        seat_id: 30,
+        purchase_id: 9,
+        course_id: 2,
+        course_title: "Building REST APIs with Node.js",
+        unclaimed_seats: 0,
+        seats_total: 1,
+        url: "/team",
+      },
+      actorName: "Olivia Martinez",
+      insertedAt: "2026-11-14T11:30:00Z",
+    });
+
+    expect(row.details).toEqual([
+      "Building REST APIs with Node.js",
+      "0 of 1 Seat unclaimed",
+    ]);
+  });
+
+  it("renders a New Enrollment", () => {
+    const row = notificationRow({
+      workflow: "new-enrollment",
+      data: {
+        enrollment_id: 57,
+        course_id: 1,
+        course_title: "Introduction to TypeScript",
+        url: "/instructor/1/students",
+      },
+      actorName: "Emma Wilson",
+      insertedAt: "2026-11-14T10:00:00Z",
+    });
+
+    expect(row).toEqual({
+      icon: "new-enrollment",
+      title: "Emma Wilson enrolled in Introduction to TypeScript",
+      details: [],
+      time: "2h ago",
+      url: "/instructor/1/students",
+    });
+  });
+
   it("renders a fallback row with no link when the data doesn't parse", () => {
     const row = notificationRow({
       workflow: "discussion-reply",

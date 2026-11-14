@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/courses.$slug.purchase";
 import { getCurrentUserId } from "~/lib/session";
+import { notificationGateway } from "~/lib/knock.server";
+import { notifyNewEnrollment } from "~/lib/notifications.server";
 import { db } from "~/db";
 import {
   courses,
@@ -368,7 +370,9 @@ export async function action({ params, request }: Route.ActionArgs) {
       throw redirect(`/courses/${slug}`);
     }
     createPurchase(currentUserId, course.id, pppPrice, country);
-    enrollUser(currentUserId, course.id, false, false);
+    const enrollment = enrollUser(currentUserId, course.id, false, false);
+    // Not awaited: Knock never holds up or fails buying a course.
+    void notifyNewEnrollment(notificationGateway(), db, enrollment.id);
     throw redirect(`/courses/${slug}/welcome`);
   }
 
