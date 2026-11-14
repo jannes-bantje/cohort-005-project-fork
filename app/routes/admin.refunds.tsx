@@ -355,7 +355,7 @@ function RefundRequestCard({
             />
             {!refundRequest.canApprove && (
               <p className="text-xs text-muted-foreground">
-                A Seat on this Team Licence has been claimed, so it can only be
+                A seat on this Team Licence has been claimed, so it can only be
                 declined.
               </p>
             )}

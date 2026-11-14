@@ -612,7 +612,7 @@ export default function PurchaseConfirmation({
                         <Button size="lg" disabled={isSubmitting}>
                           {isSubmitting
                             ? "Processing..."
-                            : `Buy ${quantity} ${quantity === 1 ? "Seat" : "Seats"}`}
+                            : `Buy ${quantity} ${quantity === 1 ? "seat" : "seats"}`}
                         </Button>
                       </fetcher.Form>
                     </div>

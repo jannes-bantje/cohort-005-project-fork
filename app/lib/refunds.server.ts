@@ -220,7 +220,7 @@ const RULE_BREAK_ERRORS: Record<RuleBreak, string> = {
     "You have watched too much of this course to get a refund.",
   completed_too_much:
     "You have completed too much of this course to request a refund.",
-  seat_claimed: "A Team Licence with a claimed Seat cannot be refunded.",
+  seat_claimed: "A Team Licence with a claimed seat cannot be refunded.",
 };
 
 /**
@@ -632,7 +632,7 @@ export function approveRefundRequest(
           ok: false,
           status: 409,
           error:
-            "A Seat on this Team Licence has been claimed, so this refund request can only be declined.",
+            "A seat on this Team Licence has been claimed, so this refund request can only be declined.",
         };
       }
 

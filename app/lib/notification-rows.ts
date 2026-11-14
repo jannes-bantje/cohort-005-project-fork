@@ -92,10 +92,10 @@ const renderers: {
   }),
   "seat-claimed": (data, actorName) => ({
     icon: "seat-claimed",
-    title: `${actorName} claimed a Seat`,
+    title: `${actorName} claimed a seat`,
     details: [
       data.course_title,
-      `${data.unclaimed_seats} of ${data.seats_total} ${data.seats_total === 1 ? "Seat" : "Seats"} unclaimed`,
+      `${data.unclaimed_seats} of ${data.seats_total} ${data.seats_total === 1 ? "seat" : "seats"} unclaimed`,
     ],
     url: data.url,
   }),

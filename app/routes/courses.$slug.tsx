@@ -777,7 +777,7 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                   <Link to={teamPurchaseLink}>
                     <Button variant="outline" className="w-full">
                       <Users className="mr-2 size-4" />
-                      Buy More Seats
+                      Buy more seats
                     </Button>
                   </Link>
                   <RateCourse userRating={userRating} />

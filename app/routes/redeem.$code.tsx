@@ -64,7 +64,7 @@ function claimSeat(
   }
 
   if (seat.redeemedByUserId !== null) {
-    return { ok: false, error: "This Seat has already been claimed" };
+    return { ok: false, error: "This seat has already been claimed" };
   }
 
   const availability = getSeatAvailability(db, seat);
@@ -100,7 +100,7 @@ function claimSeat(
     return {
       ok: false,
       error:
-        "This Seat can only be claimed from the same country as the Team Admin who bought the Team Licence",
+        "This seat can only be claimed from the same country as the Team Admin who bought the Team Licence",
     };
   }
 
@@ -130,10 +130,10 @@ const redeemActionSchema = z.object({
 });
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  const title = loaderData?.course?.title ?? "Claim a Seat";
+  const title = loaderData?.course?.title ?? "Claim a seat";
   return [
-    { title: `Claim a Seat: ${title} — Cadence` },
-    { name: "description", content: `Claim your Seat on ${title}` },
+    { title: `Claim a seat: ${title} — Cadence` },
+    { name: "description", content: `Claim your seat on ${title}` },
   ];
 }
 
@@ -255,7 +255,7 @@ export default function Redeem({
 
   return (
     <div className="mx-auto max-w-2xl p-6 lg:p-8">
-      <h1 className="mb-2 text-2xl font-bold">Claim a Seat</h1>
+      <h1 className="mb-2 text-2xl font-bold">Claim a seat</h1>
       <p className="mb-8 text-muted-foreground">
         You&apos;ve been invited to enroll in a course.
       </p>
@@ -277,12 +277,12 @@ export default function Redeem({
               <div className="flex items-center justify-center gap-2 text-destructive">
                 <AlertCircle className="size-5" />
                 <span className="font-medium">
-                  This Seat has already been claimed
+                  This seat has already been claimed
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                Someone else claimed this Seat. Ask the person who shared this
-                link for another Seat.
+                Someone else claimed this seat. Ask the person who shared this
+                link for another seat.
               </p>
             </div>
           ) : alreadyEnrolled ? (
@@ -294,7 +294,7 @@ export default function Redeem({
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                You&apos;re already enrolled on this course. This Seat is still
+                You&apos;re already enrolled on this course. This seat is still
                 unclaimed, so it can be shared with someone else.
               </p>
               <Link to={`/courses/${course.slug}`}>
@@ -320,7 +320,7 @@ export default function Redeem({
                 <span className="font-medium">Region restriction</span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                This Seat can only be claimed from the same country as the Team
+                This seat can only be claimed from the same country as the Team
                 Admin who bought the Team Licence. Your location doesn&apos;t
                 match their country.
               </p>

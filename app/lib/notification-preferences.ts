@@ -31,7 +31,7 @@ export function visibleNotificationPreferences(
 export const NOTIFICATION_PREFERENCE_LABELS: Record<CategoryKey, string> = {
   "refund-request-decisions": "Refund Request decisions",
   "open-refund-requests": "Open Refund Requests",
-  "claimed-seats": "Claimed Seats",
+  "claimed-seats": "Claimed seats",
   enrollments: "Enrollments",
   "discussion-questions": "Discussion Questions",
   "discussion-replies": "Discussion Replies",

@@ -17,5 +17,5 @@ export const RULE_BREAK_LABELS: Record<RuleBreak, string> = {
   window_closed: `Raised outside the ${REFUND_WINDOW_DAYS}-day window`,
   watched_too_much: `Watched ${REFUND_WATCH_LIMIT_SECONDS / 3600} hours or more`,
   completed_too_much: `Completed ${REFUND_COMPLETION_LIMIT * 100}% of lessons or more`,
-  seat_claimed: "A Seat has been claimed",
+  seat_claimed: "A seat has been claimed",
 };

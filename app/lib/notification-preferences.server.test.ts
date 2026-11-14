@@ -83,7 +83,7 @@ describe("loadNotificationPreferences", () => {
           label: "Discussion Replies",
           enabled: true,
         },
-        { category: "claimed-seats", label: "Claimed Seats", enabled: true },
+        { category: "claimed-seats", label: "Claimed seats", enabled: true },
       ],
     });
   });
@@ -138,7 +138,7 @@ describe("loadNotificationPreferences", () => {
           label: "Discussion Replies",
           enabled: true,
         },
-        { category: "claimed-seats", label: "Claimed Seats", enabled: true },
+        { category: "claimed-seats", label: "Claimed seats", enabled: true },
       ],
     });
   });

@@ -156,8 +156,8 @@ describe("notificationRow", () => {
 
     expect(row).toEqual({
       icon: "seat-claimed",
-      title: "Olivia Martinez claimed a Seat",
-      details: ["Building REST APIs with Node.js", "3 of 10 Seats unclaimed"],
+      title: "Olivia Martinez claimed a seat",
+      details: ["Building REST APIs with Node.js", "3 of 10 seats unclaimed"],
       time: "30m ago",
       url: "/team",
     });
@@ -181,7 +181,7 @@ describe("notificationRow", () => {
 
     expect(row.details).toEqual([
       "Building REST APIs with Node.js",
-      "0 of 1 Seat unclaimed",
+      "0 of 1 seat unclaimed",
     ]);
   });
 
