@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PURCHASE_KINDS } from "~/lib/purchase-kind";
 
 // ─── Trigger data contract ───
 // The `data` each Notification carries into Knock, one schema per workflow
@@ -55,8 +56,7 @@ const discussionQuestionData = z.object({
   url: appPath,
 });
 
-// The glossary's Individual Purchase and Team Licence.
-const purchaseKind = z.enum(["individual_purchase", "team_licence"]);
+const purchaseKind = z.enum(PURCHASE_KINDS);
 
 const openRefundRequestData = z.object({
   refund_request_id: id,
