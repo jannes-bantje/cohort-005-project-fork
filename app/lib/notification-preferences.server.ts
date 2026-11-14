@@ -1,5 +1,4 @@
-import { eq } from "drizzle-orm";
-import { coupons, purchases, type users } from "~/db/schema";
+import { RefundStatus, type users } from "~/db/schema";
 import type {
   NotificationGateway,
   NotificationPreferences,
@@ -9,7 +8,7 @@ import {
   NOTIFICATION_PREFERENCE_LABELS,
   visibleNotificationPreferences,
 } from "~/lib/notification-preferences";
-import type { Db } from "~/lib/refunds.server";
+import { listTeamLicences, type Db } from "~/lib/refunds.server";
 
 // ─── Notification Preferences (server) ───
 // Reading and saving a person's Notification Preferences in Knock, through the
@@ -56,7 +55,7 @@ export async function loadNotificationPreferences(
   }
   const visible = visibleNotificationPreferences({
     role: user.role,
-    ownsTeamLicence: ownsTeamLicence(db, user.id),
+    ownsTeamLicence: ownsLiveTeamLicence(db, user.id),
   });
   return {
     available: true,
@@ -97,14 +96,12 @@ export async function saveNotificationPreference(
   return { ok: true };
 }
 
-// A Team Licence is a Purchase that grants Seats.
-function ownsTeamLicence(db: Db, userId: number): boolean {
-  const seat = db
-    .select({ id: coupons.id })
-    .from(coupons)
-    .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
-    .where(eq(purchases.userId, userId))
-    .limit(1)
-    .get();
-  return seat !== undefined;
+// A Team Licence with an Approved Refund Request has no Seats left to claim,
+// so only Team Licences without one count. Once approved, a Purchase can't get
+// another Refund Request, so the latest one says whether it was refunded.
+function ownsLiveTeamLicence(db: Db, userId: number): boolean {
+  return listTeamLicences(db, userId, new Date()).some(
+    (teamLicence) =>
+      teamLicence.latestRefundRequest?.status !== RefundStatus.Approved
+  );
 }
