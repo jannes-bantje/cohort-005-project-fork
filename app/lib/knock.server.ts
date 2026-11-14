@@ -6,6 +6,7 @@ import {
   type NotificationPreferences,
 } from "~/lib/notification-gateway";
 import { CATEGORY_DEFAULTS, CATEGORY_KEYS } from "~/lib/notification-keys";
+import { feedUserToken, type UserTokens } from "~/lib/notifications.server";
 
 // ─── Knock ───
 // The Knock-backed NotificationGateway. When any of the four runtime keys is
@@ -13,7 +14,8 @@ import { CATEGORY_DEFAULTS, CATEGORY_KEYS } from "~/lib/notification-keys";
 // one warning is printed, like the mailer's .outbox fallback.
 //
 // Only route modules import this file. The Notifications module takes the
-// gateway as a parameter instead, so tests never reach Knock.
+// gateway as a parameter instead, so tests never reach Knock. It also prepares
+// the bell's feed auth, because that needs the keys.
 
 const RUNTIME_KEYS = [
   "KNOCK_PUBLIC_API_KEY",
@@ -75,6 +77,52 @@ export function notificationGateway(): NotificationGateway {
   const knock = knockConfig();
   gateway = knock ? knockGateway(knock) : disabledNotificationGateway;
   return gateway;
+}
+
+/** What the bell needs to read one user's Notification Feed from the browser. */
+export type NotificationFeedAuth = {
+  /** The Knock user id: the Cadence user id as a string. */
+  userId: string;
+  /** An RS256 user token Cadence signed for this user. */
+  token: string;
+  publicApiKey: string;
+  feedChannelId: string;
+};
+
+// Feed user tokens issued by this server process, by user id. Reused until
+// they're about to expire, so a user is identified once per token.
+const userTokens: UserTokens = new Map();
+
+/**
+ * Feed auth for the user in the session, or null when Notifications are off
+ * or nobody is signed in, which hides the bell. A failure to sign is logged
+ * and also hides the bell, so the page still renders.
+ */
+export async function notificationFeedAuth(
+  user: { id: number; name: string; email: string } | null
+): Promise<NotificationFeedAuth | null> {
+  const knock = knockConfig();
+  if (!knock || !user) return null;
+
+  try {
+    const { token } = await feedUserToken(notificationGateway(), userTokens, {
+      user,
+      signingKey: knock.signingKey,
+      now: new Date(),
+    });
+    return {
+      userId: String(user.id),
+      token,
+      publicApiKey: knock.publicApiKey,
+      feedChannelId: knock.feedChannelId,
+    };
+  } catch (error) {
+    console.error(
+      `Could not sign a feed user token for user ${user.id}`,
+      error
+    );
+    return null;
+  }
 }
 
 function knockGateway({
