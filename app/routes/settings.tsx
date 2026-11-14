@@ -17,11 +17,28 @@ import { db } from "~/db";
 import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
+import { notificationGateway, notificationsEnabled } from "~/lib/knock.server";
+import { CATEGORY_KEYS } from "~/lib/notification-keys";
+import {
+  loadNotificationPreferences,
+  saveNotificationPreference,
+  type NotificationPreferenceSwitch,
+  type NotificationPreferencesCard,
+} from "~/lib/notification-preferences.server";
+import { Switch } from "~/components/ui/switch";
 
-const settingsSchema = z.object({
-  name: z.string().trim().min(1, "Name cannot be empty."),
-  bio: z.string().trim().optional(),
-});
+const settingsSchema = z.discriminatedUnion("intent", [
+  z.object({
+    intent: z.literal("update-profile"),
+    name: z.string().trim().min(1, "Name cannot be empty."),
+    bio: z.string().trim().optional(),
+  }),
+  z.object({
+    intent: z.literal("update-notification-preference"),
+    category: z.enum(CATEGORY_KEYS),
+    enabled: z.enum(["on", "off"]),
+  }),
+]);
 
 export function meta() {
   return [
@@ -51,6 +68,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
+  // Hidden entirely when Knock isn't configured.
+  const notificationPreferences = notificationsEnabled()
+    ? await loadNotificationPreferences(notificationGateway(), db, currentUser)
+    : null;
+
   return {
     user: {
       id: currentUser.id,
@@ -60,6 +82,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       role: currentUser.role,
     },
     refundRequests,
+    notificationPreferences,
   };
 }
 
@@ -86,6 +109,16 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ errors: parsed.errors }, { status: 400 });
   }
 
+  if (parsed.data.intent === "update-notification-preference") {
+    const saved = await saveNotificationPreference(notificationGateway(), {
+      userId: currentUser.id,
+      category: parsed.data.category,
+      enabled: parsed.data.enabled === "on",
+    });
+    // Returned rather than thrown, so the switch can go back to its value.
+    return saved.ok ? saved : data(saved, { status: 502 });
+  }
+
   const { name, bio } = parsed.data;
 
   db
@@ -98,7 +131,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { user, refundRequests } = loaderData;
+  const { user, refundRequests, notificationPreferences } = loaderData;
   const openCount = refundRequests.filter(
     (refundRequest) => refundRequest.status === RefundStatus.Open
   ).length;
@@ -139,6 +172,7 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardHeader>
         <CardContent>
           <fetcher.Form method="post" className="space-y-4">
+            <input type="hidden" name="intent" value="update-profile" />
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -188,6 +222,10 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardContent>
       </Card>
 
+      {notificationPreferences && (
+        <NotificationsCard card={notificationPreferences} />
+      )}
+
       {refundRequests.length > 0 && (
         <Card className="mt-8 max-w-md">
           <CardHeader>
@@ -236,6 +274,87 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </Card>
       )}
     </div>
+  );
+}
+
+function NotificationsCard({ card }: { card: NotificationPreferencesCard }) {
+  return (
+    <Card id="notifications" className="mt-8 max-w-md scroll-mt-8">
+      <CardHeader>
+        <h2 className="text-lg font-semibold">Notifications</h2>
+        <p className="text-sm text-muted-foreground">
+          Choose which Notifications reach your Notification Feed. A change
+          only affects future Notifications.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {card.available ? (
+          <ul className="space-y-4">
+            {card.preferences.map((preference) => (
+              <NotificationPreferenceRow
+                key={preference.category}
+                preference={preference}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Notification Preferences aren't available right now. Try again
+            later.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function NotificationPreferenceRow({
+  preference,
+}: {
+  preference: NotificationPreferenceSwitch;
+}) {
+  const fetcher = useFetcher<typeof action>();
+  const id = `notification-preference-${preference.category}`;
+
+  // While saving, show the value being saved. Otherwise show the loader's
+  // value: after a save it is read again from Knock, and after a failed save
+  // it is still the previous value, so the switch goes back.
+  const saving = fetcher.formData?.get("enabled");
+  const enabled =
+    typeof saving === "string" ? saving === "on" : preference.enabled;
+  const error =
+    fetcher.state === "idle" &&
+    fetcher.data &&
+    "ok" in fetcher.data &&
+    !fetcher.data.ok
+      ? fetcher.data.error
+      : null;
+
+  return (
+    <li>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={id}>{preference.label}</Label>
+        <Switch
+          id={id}
+          checked={enabled}
+          onCheckedChange={(checked) =>
+            fetcher.submit(
+              {
+                intent: "update-notification-preference",
+                category: preference.category,
+                enabled: checked ? "on" : "off",
+              },
+              { method: "post" }
+            )
+          }
+        />
+      </div>
+      {error && (
+        <p role="alert" className="mt-1 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </li>
   );
 }
 
