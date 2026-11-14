@@ -98,14 +98,14 @@ const userTokens: UserTokens = new Map();
  * or nobody is signed in, which hides the bell. A failure to sign is logged
  * and also hides the bell, so the page still renders.
  */
-export async function notificationFeedAuth(
+export function notificationFeedAuth(
   user: { id: number; name: string; email: string } | null
-): Promise<NotificationFeedAuth | null> {
+): NotificationFeedAuth | null {
   const knock = knockConfig();
   if (!knock || !user) return null;
 
   try {
-    const { token } = await feedUserToken(notificationGateway(), userTokens, {
+    const { token } = feedUserToken(notificationGateway(), userTokens, {
       user,
       signingKey: knock.signingKey,
       now: new Date(),

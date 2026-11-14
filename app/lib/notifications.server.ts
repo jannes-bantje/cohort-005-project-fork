@@ -309,16 +309,18 @@ export type UserTokens = Map<number, UserToken>;
 
 /**
  * The user's feed token. Reuses the one already issued until it is about to
- * expire; otherwise identifies the user to Knock (name and email) and signs a
- * new one, so there is one identification per token issued, not per request.
- * Keyed by user, so switching users in DevUI gets that user's token. If
- * identifying fails, the error is logged and the token is still signed.
+ * expire; otherwise asks Knock to identify the user (name and email) and signs
+ * a new one, so there is one identification per token issued, not per request.
+ * Keyed by user, so switching users in DevUI gets that user's token.
+ *
+ * The token never waits on Knock: identifying is started, not awaited, and the
+ * token is signed straight away. If identifying fails, the error is logged.
  */
-export async function feedUserToken(
+export function feedUserToken(
   gateway: NotificationGateway,
   tokens: UserTokens,
   { user, signingKey, now }: { user: Person; signingKey: string; now: Date }
-): Promise<UserToken> {
+): UserToken {
   const nowSeconds = Math.floor(now.getTime() / 1000);
   const issued = tokens.get(user.id);
   if (
@@ -328,11 +330,9 @@ export async function feedUserToken(
     return issued;
   }
 
-  try {
-    await gateway.identifyUser(knockUser(user));
-  } catch (error) {
+  gateway.identifyUser(knockUser(user)).catch((error: unknown) => {
     console.error(`Could not identify user ${user.id} to Knock`, error);
-  }
+  });
 
   const userToken = signUserToken(user.id, signingKey, nowSeconds);
   tokens.set(user.id, userToken);

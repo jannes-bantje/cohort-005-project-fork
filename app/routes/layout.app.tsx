@@ -216,7 +216,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
     // Null when Notifications are off or nobody is signed in: no bell.
-    notificationFeed: await notificationFeedAuth(currentUser ?? null),
+    notificationFeed: notificationFeedAuth(currentUser ?? null),
   };
 }
 

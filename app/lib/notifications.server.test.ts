@@ -15,6 +15,7 @@ import {
   declineRefundRequest,
   raiseRefundRequest,
 } from "./refunds.server";
+import type { NotificationUser } from "~/lib/notification-gateway";
 import { recordingNotificationGateway } from "~/test/recording-notification-gateway";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
@@ -603,10 +604,10 @@ function verifiedToken(token: string) {
 }
 
 describe("feedUserToken", () => {
-  it("identifies the user, then signs an RS256 token for them", async () => {
+  it("asks Knock to identify the user and signs an RS256 token for them", async () => {
     const gateway = recordingNotificationGateway();
 
-    const { token } = await feedUserToken(gateway, new Map(), {
+    const { token } = feedUserToken(gateway, new Map(), {
       user: emma,
       signingKey,
       now: NOW,
@@ -624,16 +625,48 @@ describe("feedUserToken", () => {
     });
   });
 
-  it("still signs the token when identifying the user fails", async () => {
+  it("signs the token without waiting for Knock to identify the user", async () => {
+    // Knock never answers the identification.
+    const recorder = recordingNotificationGateway();
+    const gateway = {
+      ...recorder,
+      identifyUser: (user: NotificationUser) => {
+        void recorder.identifyUser(user);
+        return new Promise<void>(() => {});
+      },
+    };
+
+    const { token } = feedUserToken(gateway, new Map(), {
+      user: emma,
+      signingKey,
+      now: NOW,
+    });
+
+    expect(recorder.calls).toEqual([
+      {
+        method: "identifyUser",
+        input: { id: "3", name: "Emma Wilson", email: "emma@example.com" },
+      },
+    ]);
+    expect(verifiedToken(token).claims).toEqual({
+      sub: "3",
+      iat: NOW_SECONDS,
+      exp: NOW_SECONDS + 60 * 60,
+    });
+  });
+
+  it("still signs the token when identifying the user fails, and logs it", async () => {
     const gateway = recordingNotificationGateway({ reject: true });
 
     let token = "";
     const errors = await captureConsoleErrors(async () => {
-      ({ token } = await feedUserToken(gateway, new Map(), {
+      ({ token } = feedUserToken(gateway, new Map(), {
         user: emma,
         signingKey,
         now: NOW,
       }));
+      // The identification isn't awaited, so let its failure be logged.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(verifiedToken(token).claims).toEqual({
@@ -649,12 +682,12 @@ describe("feedUserToken", () => {
     const gateway = recordingNotificationGateway();
     const tokens: UserTokens = new Map();
 
-    const first = await feedUserToken(gateway, tokens, {
+    const first = feedUserToken(gateway, tokens, {
       user: emma,
       signingKey,
       now: NOW,
     });
-    const later = await feedUserToken(gateway, tokens, {
+    const later = feedUserToken(gateway, tokens, {
       user: emma,
       signingKey,
       now: new Date("2026-11-14T12:45:00Z"),
@@ -673,8 +706,8 @@ describe("feedUserToken", () => {
     const gateway = recordingNotificationGateway();
     const tokens: UserTokens = new Map();
 
-    await feedUserToken(gateway, tokens, { user: emma, signingKey, now: NOW });
-    const { token } = await feedUserToken(gateway, tokens, {
+    feedUserToken(gateway, tokens, { user: emma, signingKey, now: NOW });
+    const { token } = feedUserToken(gateway, tokens, {
       user: james,
       signingKey,
       now: NOW,
@@ -697,8 +730,8 @@ describe("feedUserToken", () => {
     const gateway = recordingNotificationGateway();
     const tokens: UserTokens = new Map();
 
-    await feedUserToken(gateway, tokens, { user: emma, signingKey, now: NOW });
-    const { token } = await feedUserToken(gateway, tokens, {
+    feedUserToken(gateway, tokens, { user: emma, signingKey, now: NOW });
+    const { token } = feedUserToken(gateway, tokens, {
       user: emma,
       signingKey,
       now: new Date("2026-11-14T12:55:00Z"),
