@@ -9,6 +9,8 @@ import Knock, {
 } from "@knocklabs/client";
 import {
   Bell,
+  CircleCheck,
+  CircleX,
   MessageCircleQuestion,
   MessageSquareReply,
   Receipt,
@@ -51,6 +53,14 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
   "open-refund-request": {
     Icon: Receipt,
     tint: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-300",
+  },
+  "refund-request-approved": {
+    Icon: CircleCheck,
+    tint: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300",
+  },
+  "refund-request-declined": {
+    Icon: CircleX,
+    tint: "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-300",
   },
   notification: {
     Icon: Bell,

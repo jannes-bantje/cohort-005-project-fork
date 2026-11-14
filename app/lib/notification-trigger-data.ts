@@ -55,16 +55,36 @@ const discussionQuestionData = z.object({
   url: appPath,
 });
 
+// The glossary's Individual Purchase and Team Licence.
+const purchaseKind = z.enum(["individual_purchase", "team_licence"]);
+
 const openRefundRequestData = z.object({
   refund_request_id: id,
   purchase_id: id,
   course_id: id,
   course_title: z.string(),
-  purchase_kind: z.enum(["individual_purchase", "team_licence"]),
+  purchase_kind: purchaseKind,
   /** What the buyer paid for the Purchase, in integer cents. */
   amount_cents: z.number().int(),
   reason: snippetText,
   url: appPath,
+});
+
+// A Refund Request decision. The deciding Platform Admin is Knock's actor and
+// is never rendered.
+const refundRequestDeclinedData = z.object({
+  refund_request_id: id,
+  purchase_id: id,
+  course_id: id,
+  course_title: z.string(),
+  purchase_kind: purchaseKind,
+  decision_note: snippetText.nullable(),
+  url: appPath,
+});
+
+const refundRequestApprovedData = refundRequestDeclinedData.extend({
+  /** The amount refunded, in integer cents. */
+  amount_cents: z.number().int(),
 });
 
 export const triggerDataSchema = z.discriminatedUnion("workflow", [
@@ -79,6 +99,14 @@ export const triggerDataSchema = z.discriminatedUnion("workflow", [
   z.object({
     workflow: z.literal("open-refund-request"),
     data: openRefundRequestData,
+  }),
+  z.object({
+    workflow: z.literal("refund-request-approved"),
+    data: refundRequestApprovedData,
+  }),
+  z.object({
+    workflow: z.literal("refund-request-declined"),
+    data: refundRequestDeclinedData,
   }),
 ]);
 

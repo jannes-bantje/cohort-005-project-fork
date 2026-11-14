@@ -23,7 +23,11 @@ import {
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 import { sendEmail } from "~/lib/mailer.server";
 import { notificationGateway } from "~/lib/knock.server";
-import { archiveOpenRefundRequestNotifications } from "~/lib/notifications.server";
+import {
+  archiveOpenRefundRequestNotifications,
+  notifyRefundRequestApproved,
+  notifyRefundRequestDeclined,
+} from "~/lib/notifications.server";
 
 const refundFilterSchema = z
   .nativeEnum(RefundStatus)
@@ -135,6 +139,14 @@ export async function action({ request }: Route.ActionArgs) {
     notificationGateway(),
     refundRequestId
   );
+
+  // The decision has committed. Tell the buyer without awaiting, before the
+  // email, so the Notification goes out even if the email fails.
+  const notifyDecision =
+    intent === "approve"
+      ? notifyRefundRequestApproved
+      : notifyRefundRequestDeclined;
+  void notifyDecision(notificationGateway(), db, refundRequestId);
 
   await sendEmail(result.email);
 
