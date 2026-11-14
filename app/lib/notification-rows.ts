@@ -3,7 +3,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import { formatRelativeTime } from "~/lib/utils";
+import { formatPrice, formatRelativeTime } from "~/lib/utils";
 
 // ─── Notification rows ───
 // Turns a Notification Feed item into what one row of the bell shows, in
@@ -53,6 +53,25 @@ const renderers: {
     ],
     url: data.url,
   }),
+  "refund-request-approved": (data) => ({
+    icon: "refund-request-approved",
+    title: "Your Refund Request was approved",
+    details: [
+      `${decidedPurchase(data)} · Refund of ${formatPrice(data.amount_cents)}`,
+      ...decisionNote(data),
+    ],
+    url: data.url,
+  }),
+  "refund-request-declined": (data) => ({
+    icon: "refund-request-declined",
+    title: "Your Refund Request was declined",
+    details: [
+      decidedPurchase(data),
+      ...decisionNote(data),
+      "You can raise a new Refund Request.",
+    ],
+    url: data.url,
+  }),
 };
 
 const fallback: RowContent = {
@@ -89,4 +108,18 @@ export function unseenBadge(unseenCount: number): string | null {
 
 function quote(text: string) {
   return `“${text}”`;
+}
+
+// ─── Refund Request decisions ───
+// The deciding Platform Admin is never named: the decision reads as Cadence's.
+
+/** The Purchase the Refund Request was for, as the buyer knows it. */
+function decidedPurchase(data: TriggerDataFor<"refund-request-declined">) {
+  return data.purchase_kind === "team_licence"
+    ? `Your Team Licence for ${data.course_title}`
+    : data.course_title;
+}
+
+function decisionNote(data: TriggerDataFor<"refund-request-declined">) {
+  return data.decision_note === null ? [] : [quote(data.decision_note)];
 }

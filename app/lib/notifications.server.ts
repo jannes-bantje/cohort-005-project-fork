@@ -1,7 +1,17 @@
 import { sign } from "node:crypto";
 import { alias } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import { and, eq } from "drizzle-orm";
+import {
+  comments,
+  coupons,
+  courses,
+  lessons,
+  modules,
+  purchases,
+  RefundStatus,
+  refunds,
+  users,
+} from "~/db/schema";
 import type {
   NotificationGateway,
   NotificationUser,
@@ -12,7 +22,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import type { Db } from "~/lib/refunds.server";
+import type { Db, PurchaseKind } from "~/lib/refunds.server";
 
 // ─── Notifications ───
 // Telling people that something which concerns them has happened, through
@@ -138,6 +148,130 @@ export function notifyDiscussionReply(
           excerpt: snippet(reply.comment.body),
           url: lessonUrl(reply.course.slug, reply.lesson.id),
         },
+      });
+    }
+  );
+}
+
+// ─── Refund Request decisions ───
+
+const deciders = alias(users, "deciders");
+
+/**
+ * A decided Refund Request with what its Notification shows, or null when it
+ * doesn't exist or wasn't decided that way.
+ */
+function findDecidedRefundRequest(
+  db: Db,
+  refundRequestId: number,
+  decision: RefundStatus.Approved | RefundStatus.Declined
+) {
+  const decided = db
+    .select({
+      refundRequest: refunds,
+      purchase: purchases,
+      buyer: users,
+      platformAdmin: deciders,
+      course: courses,
+    })
+    .from(refunds)
+    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+    .innerJoin(users, eq(purchases.userId, users.id))
+    .innerJoin(deciders, eq(refunds.resolvedByUserId, deciders.id))
+    .innerJoin(courses, eq(purchases.courseId, courses.id))
+    .where(and(eq(refunds.id, refundRequestId), eq(refunds.status, decision)))
+    .get();
+  if (!decided) return null;
+
+  const { refundRequest, purchase, course } = decided;
+  return {
+    ...decided,
+    data: {
+      refund_request_id: refundRequest.id,
+      purchase_id: purchase.id,
+      course_id: course.id,
+      course_title: course.title,
+      purchase_kind: purchaseKindOf(db, purchase.id),
+      decision_note:
+        refundRequest.decisionNote === null
+          ? null
+          : snippet(refundRequest.decisionNote),
+      url: "/settings",
+    },
+  };
+}
+
+// A Team Licence is the Purchase that granted Seats (refunds.server.ts keeps
+// the same rule private); its Seats stay on record after a Refund.
+function purchaseKindOf(db: Db, purchaseId: number): PurchaseKind {
+  const seat = db
+    .select({ id: coupons.id })
+    .from(coupons)
+    .where(eq(coupons.purchaseId, purchaseId))
+    .get();
+  return seat ? "team_licence" : "individual_purchase";
+}
+
+/**
+ * Tells the buyer that a Platform Admin approved their Refund Request. The
+ * deciding Platform Admin is the actor, so deciding your own Refund Request
+ * tells nobody.
+ */
+export function notifyRefundRequestApproved(
+  gateway: NotificationGateway,
+  db: Db,
+  refundRequestId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "refund-request-approved", domainId: refundRequestId },
+    async () => {
+      const decided = findDecidedRefundRequest(
+        db,
+        refundRequestId,
+        RefundStatus.Approved
+      );
+      if (!decided || decided.refundRequest.amountRefunded === null) return;
+
+      await sendNotification(gateway, {
+        workflow: "refund-request-approved",
+        domainId: refundRequestId,
+        recipients: [decided.buyer],
+        actor: decided.platformAdmin,
+        data: {
+          ...decided.data,
+          amount_cents: decided.refundRequest.amountRefunded,
+        },
+      });
+    }
+  );
+}
+
+/**
+ * Tells the buyer that a Platform Admin declined their Refund Request. The
+ * deciding Platform Admin is the actor, so deciding your own Refund Request
+ * tells nobody.
+ */
+export function notifyRefundRequestDeclined(
+  gateway: NotificationGateway,
+  db: Db,
+  refundRequestId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "refund-request-declined", domainId: refundRequestId },
+    async () => {
+      const decided = findDecidedRefundRequest(
+        db,
+        refundRequestId,
+        RefundStatus.Declined
+      );
+      if (!decided) return;
+
+      await sendNotification(gateway, {
+        workflow: "refund-request-declined",
+        domainId: refundRequestId,
+        recipients: [decided.buyer],
+        actor: decided.platformAdmin,
+        data: decided.data,
       });
     }
   );
