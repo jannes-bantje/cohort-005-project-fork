@@ -298,6 +298,8 @@ export function archiveOpenRefundRequestNotifications(
 
 const deciders = alias(users, "deciders");
 
+type Decision = RefundStatus.Approved | RefundStatus.Declined;
+
 /**
  * A decided Refund Request with what its Notification shows, or null when it
  * doesn't exist or wasn't decided that way.
@@ -305,7 +307,7 @@ const deciders = alias(users, "deciders");
 function findDecidedRefundRequest(
   db: Db,
   refundRequestId: number,
-  decision: RefundStatus.Approved | RefundStatus.Declined
+  decision: Decision
 ) {
   const decided = db
     .select({
@@ -352,28 +354,14 @@ export function notifyRefundRequestApproved(
   db: Db,
   refundRequestId: number
 ): Promise<void> {
-  return fireAndForget(
-    { workflow: "refund-request-approved", domainId: refundRequestId },
-    async () => {
-      const decided = findDecidedRefundRequest(
-        db,
-        refundRequestId,
-        RefundStatus.Approved
-      );
-      if (!decided || decided.refundRequest.amountRefunded === null) return;
-
-      await sendNotification(gateway, {
-        workflow: "refund-request-approved",
-        domainId: refundRequestId,
-        recipients: [decided.buyer],
-        actor: decided.platformAdmin,
-        data: {
-          ...decided.data,
-          amount_cents: decided.refundRequest.amountRefunded,
-        },
-      });
-    }
-  );
+  return notifyRefundRequestDecision(gateway, db, refundRequestId, {
+    workflow: "refund-request-approved",
+    decision: RefundStatus.Approved,
+    data: ({ refundRequest, data }) =>
+      refundRequest.amountRefunded === null
+        ? null
+        : { ...data, amount_cents: refundRequest.amountRefunded },
+  });
 }
 
 /**
@@ -386,25 +374,49 @@ export function notifyRefundRequestDeclined(
   db: Db,
   refundRequestId: number
 ): Promise<void> {
-  return fireAndForget(
-    { workflow: "refund-request-declined", domainId: refundRequestId },
-    async () => {
-      const decided = findDecidedRefundRequest(
-        db,
-        refundRequestId,
-        RefundStatus.Declined
-      );
-      if (!decided) return;
+  return notifyRefundRequestDecision(gateway, db, refundRequestId, {
+    workflow: "refund-request-declined",
+    decision: RefundStatus.Declined,
+    data: ({ data }) => data,
+  });
+}
 
-      await sendNotification(gateway, {
-        workflow: "refund-request-declined",
-        domainId: refundRequestId,
-        recipients: [decided.buyer],
-        actor: decided.platformAdmin,
-        data: decided.data,
-      });
-    }
-  );
+type DecidedRefundRequest = NonNullable<
+  ReturnType<typeof findDecidedRefundRequest>
+>;
+
+/**
+ * Tells the buyer about a Platform Admin's decision on their Refund Request,
+ * with the deciding Platform Admin as the actor. Nothing is sent when the
+ * Refund Request wasn't decided that way, or `data` returns null.
+ */
+function notifyRefundRequestDecision<
+  W extends "refund-request-approved" | "refund-request-declined",
+>(
+  gateway: NotificationGateway,
+  db: Db,
+  refundRequestId: number,
+  notification: {
+    workflow: W;
+    decision: Decision;
+    data: (decided: DecidedRefundRequest) => TriggerDataFor<W> | null;
+  }
+): Promise<void> {
+  const { workflow, decision } = notification;
+  return fireAndForget({ workflow, domainId: refundRequestId }, async () => {
+    const decided = findDecidedRefundRequest(db, refundRequestId, decision);
+    if (!decided) return;
+    const data = notification.data(decided);
+    if (!data) return;
+
+    await sendNotification(gateway, {
+      workflow,
+      domainId: refundRequestId,
+      recipients: [decided.buyer],
+      actor: decided.platformAdmin,
+      data,
+    });
+  });
 }
 
 // ─── Claimed Seat ───
