@@ -3,6 +3,16 @@ import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
+// PROTOTYPE (#16): Notification Feed variants. Never merge.
+import { signUserToken, Knock as KnockNode } from "@knocklabs/node";
+import {
+  NotificationFeedProvider,
+  PrototypeSwitcher,
+  VariantASidebarHeader,
+  VariantBNavItem,
+  VariantCFooterButton,
+  useVariant,
+} from "~/components/prototype-notification-feed";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, and, or, sql, desc } from "drizzle-orm";
@@ -198,7 +208,25 @@ export async function loader({ request }: Route.LoaderArgs) {
       })
     : [];
 
+  // PROTOTYPE (#16): identify + sign a Knock token on every layout load. The
+  // real thing reuses the token until it expires (see #19).
+  let knockSession = null;
+  if (currentUser) {
+    if (!process.env.KNOCK_API_KEY) process.loadEnvFile(".env");
+    await new KnockNode().users.update(String(currentUser.id), {
+      name: currentUser.name,
+      email: currentUser.email,
+    });
+    knockSession = {
+      userId: currentUser.id,
+      token: await signUserToken(String(currentUser.id), { expiresInSeconds: 3600 }),
+      publicKey: process.env.KNOCK_PUBLIC_API_KEY!,
+      channelId: process.env.KNOCK_FEED_CHANNEL_ID!,
+    };
+  }
+
   return {
+    knockSession,
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
     currentUser: currentUser
       ? {
@@ -225,14 +253,22 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    knockSession,
   } = loaderData;
+  const [variant] = useVariant();
 
   return (
+    <NotificationFeedProvider session={knockSession}>
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         currentUser={currentUser}
         recentCourses={recentCourses}
         isTeamAdmin={userIsTeamAdmin}
+        headerSlot={knockSession && variant === "A" && <VariantASidebarHeader />}
+        navSlot={(linkClass) =>
+          knockSession && variant === "B" && <VariantBNavItem linkClass={linkClass} />
+        }
+        footerSlot={knockSession && variant === "C" && <VariantCFooterButton />}
       />
       <main className="flex-1 overflow-y-auto">
         <Outlet />
@@ -245,6 +281,8 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         countries={countries}
       />
       <Toaster position="bottom-right" richColors closeButton />
+      {knockSession && <PrototypeSwitcher />}
     </div>
+    </NotificationFeedProvider>
   );
 }

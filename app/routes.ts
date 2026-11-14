@@ -49,6 +49,8 @@ export default [
     route("redeem/:code", "routes/redeem.$code.tsx"),
     // PROTOTYPE (#18) — knock spike, prototype/knock-spike branch only
     route("prototype/knock", "routes/prototype.knock.tsx"),
+    // PROTOTYPE (#16) — notification feed variants, prototype/notification-feed branch only
+    route("prototype/notifications", "routes/prototype.notifications.tsx"),
   ]),
   route("signup", "routes/signup.tsx"),
   route("login", "routes/login.tsx"),
@@ -56,4 +58,6 @@ export default [
   route("api/logout", "routes/api.logout.ts"),
   route("api/video-tracking", "routes/api.video-tracking.ts"),
   route("api/set-dev-country", "routes/api.set-dev-country.ts"),
+  // PROTOTYPE (#16) — sample Notification triggers
+  route("prototype/notification-feed", "routes/prototype.notification-feed.ts"),
 ] satisfies RouteConfig;

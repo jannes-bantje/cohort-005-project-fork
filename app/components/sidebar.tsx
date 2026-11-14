@@ -41,6 +41,10 @@ interface SidebarProps {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
+  // PROTOTYPE (#16): Notification Feed variant slots. Never merge.
+  headerSlot?: React.ReactNode;
+  navSlot?: (linkClass: (active: boolean) => string) => React.ReactNode;
+  footerSlot?: React.ReactNode;
 }
 
 interface NavItem {
@@ -117,6 +121,9 @@ export function Sidebar({
   currentUser,
   recentCourses = [],
   isTeamAdmin = false,
+  headerSlot,
+  navSlot,
+  footerSlot,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
   const [isDark, setIsDark] = useState(false);
@@ -140,6 +147,7 @@ export function Sidebar({
         <NavLink to="/" className="text-lg font-bold tracking-tight">
           Cadence
         </NavLink>
+        {headerSlot}
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
@@ -177,6 +185,14 @@ export function Sidebar({
             <UsersRound className="size-4" />
             Team
           </NavLink>
+        )}
+        {navSlot?.((isActive) =>
+          cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          )
         )}
       </nav>
 
@@ -242,6 +258,7 @@ export function Sidebar({
                 {currentUser.role}
               </div>
             </div>
+            {footerSlot}
             <NavLink
               to="/settings"
               title="Settings"
