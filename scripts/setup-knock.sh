@@ -210,6 +210,36 @@ ask_until() {
   done
 }
 
+# ask_long_secret KEY "Prompt" is ask_secret for values longer than one terminal
+# line. In its normal line mode the terminal keeps at most MAX_CANON bytes per
+# line: 1024 on macOS, where a longer paste loses its Enter and read hangs, and
+# 4096 on Linux, where it's silently cut short. Line mode is switched off just
+# for this read, so a paste of any length gets through (Backspace doesn't work
+# while it's off). An EXIT/INT trap restores the terminal if you press Ctrl-C.
+_STTY_SAVED=""
+_restore_tty() { [[ -n "$_STTY_SAVED" ]] && stty "$_STTY_SAVED" 2>/dev/null; _STTY_SAVED=""; }
+trap _restore_tty EXIT
+trap '_restore_tty; exit 130' INT
+ask_long_secret() {
+  local key="$1" prompt="$2" current input rc=0
+  current=$(_existing "$key" || true)
+  if [[ -n "$current" ]]; then
+    printf '  %s%s%s %s[Enter keeps current]%s ' "$BOLD" "$prompt" "$RESET" "$DIM" "$RESET"
+  else
+    printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
+  fi
+  # stty hides the input instead of read -s: read -s restores its own snapshot of
+  # the terminal after a Ctrl-C trap runs, which would leave line mode off.
+  if [[ -t 0 ]]; then _STTY_SAVED=$(stty -g); stty -icanon -echo min 1 time 0; fi
+  IFS= read -r input || rc=1
+  _restore_tty
+  printf '\n'
+  if (( rc )) && [[ -z "$input" ]]; then return 1; fi
+  input="${input//[[:space:]]/}"   # a stray space or CR from the paste
+  [[ -z "$input" && -n "$current" ]] && input="$current"
+  printf -v "$key" '%s' "$input"
+}
+
 run_wizard() {
 
 TOTAL_STAGES=6
@@ -255,7 +285,11 @@ step "Click to generate a signing key."
 warn "Knock shows the private key only once. Copy it before you close the dialog."
 step "Copy the base-64 encoded version: one line starting with LS0tLS1CRUdJTi."
 note "(Not the multi-line PEM under 'Advanced': .env needs the one-line form.)"
-ask_until KNOCK_SIGNING_KEY "LS0tLS1CRUdJTi" "Paste the base-64 signing key (hidden):" secret
+while :; do
+  ask_long_secret KNOCK_SIGNING_KEY "Paste the base-64 signing key (hidden, then press Enter):" || exit 1
+  [[ "$KNOCK_SIGNING_KEY" == LS0tLS1CRUdJTi* ]] && break
+  warn "that doesn't start with LS0tLS1CRUdJTi, so it's probably the wrong value. Try again."
+done
 write_env KNOCK_SIGNING_KEY "$KNOCK_SIGNING_KEY"
 note "KNOCK_SIGNING_KEY is the name the Knock Node SDK reads by default."
 pause
