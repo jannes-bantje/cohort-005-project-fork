@@ -45,6 +45,16 @@ const discussionReplyData = z.object({
   url: appPath,
 });
 
+const discussionQuestionData = z.object({
+  comment_id: id,
+  lesson_id: id,
+  course_id: id,
+  course_title: z.string(),
+  lesson_title: z.string(),
+  excerpt: snippetText,
+  url: appPath,
+});
+
 const seatCount = z.number().int().nonnegative();
 
 const seatClaimedData = z.object({
@@ -69,6 +79,10 @@ export const triggerDataSchema = z.discriminatedUnion("workflow", [
   z.object({
     workflow: z.literal("discussion-reply"),
     data: discussionReplyData,
+  }),
+  z.object({
+    workflow: z.literal("discussion-question"),
+    data: discussionQuestionData,
   }),
   z.object({
     workflow: z.literal("seat-claimed"),

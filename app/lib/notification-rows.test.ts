@@ -52,6 +52,34 @@ describe("notificationRow", () => {
     });
   });
 
+  it("renders a Discussion Question", () => {
+    const row = notificationRow({
+      workflow: "discussion-question",
+      data: {
+        comment_id: 9,
+        lesson_id: 3,
+        course_id: 1,
+        course_title: "Introduction to TypeScript",
+        lesson_title: "Generics",
+        excerpt: "How do generics work with arrays?",
+        url: "/courses/introduction-to-typescript/lessons/3",
+      },
+      actorName: "Emma Wilson",
+      insertedAt: "2026-11-14T11:58:00Z",
+    });
+
+    expect(row).toEqual({
+      icon: "discussion-question",
+      title: "Emma Wilson asked a Discussion Question",
+      details: [
+        "Introduction to TypeScript · Generics",
+        "“How do generics work with arrays?”",
+      ],
+      time: "2m ago",
+      url: "/courses/introduction-to-typescript/lessons/3",
+    });
+  });
+
   it("renders a Claimed Seat with the Team Licence's Unclaimed Seats", () => {
     const row = notificationRow({
       workflow: "seat-claimed",

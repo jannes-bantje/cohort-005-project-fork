@@ -8,6 +8,7 @@ import Knock, {
 import {
   Bell,
   GraduationCap,
+  MessageCircleQuestion,
   MessageSquareReply,
   UserPlus,
   type LucideIcon,
@@ -38,6 +39,10 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
   "discussion-reply": {
     Icon: MessageSquareReply,
     tint: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300",
+  },
+  "discussion-question": {
+    Icon: MessageCircleQuestion,
+    tint: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300",
   },
   "seat-claimed": {
     Icon: UserPlus,
