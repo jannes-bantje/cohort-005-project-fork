@@ -1,7 +1,16 @@
 import { sign } from "node:crypto";
 import { alias } from "drizzle-orm/sqlite-core";
 import { eq } from "drizzle-orm";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import {
+  comments,
+  coupons,
+  courses,
+  enrollments,
+  lessons,
+  modules,
+  purchases,
+  users,
+} from "~/db/schema";
 import type {
   NotificationGateway,
   NotificationUser,
@@ -137,6 +146,120 @@ export function notifyDiscussionReply(
           lesson_title: reply.lesson.title,
           excerpt: snippet(reply.comment.body),
           url: lessonUrl(reply.course.slug, reply.lesson.id),
+        },
+      });
+    }
+  );
+}
+
+// ─── Claimed Seat ───
+
+const teamAdmins = alias(users, "team_admins");
+
+/**
+ * Tells the Team Admin who bought a Team Licence that a Student claimed one of
+ * its Seats, with how many of that Team Licence's Seats are still Unclaimed
+ * Seats. Counts cover only the Team Licence the Seat came from, even when the
+ * Team Admin owns several for the same course.
+ */
+export function notifySeatClaimed(
+  gateway: NotificationGateway,
+  db: Db,
+  seatId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "seat-claimed", domainId: seatId },
+    async () => {
+      const claim = db
+        .select({
+          seat: coupons,
+          student: users,
+          teamAdmin: teamAdmins,
+          course: courses,
+        })
+        .from(coupons)
+        .innerJoin(users, eq(coupons.redeemedByUserId, users.id))
+        .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
+        .innerJoin(teamAdmins, eq(purchases.userId, teamAdmins.id))
+        .innerJoin(courses, eq(coupons.courseId, courses.id))
+        .where(eq(coupons.id, seatId))
+        .get();
+      if (!claim) return;
+
+      const licenceSeats = db
+        .select({
+          claimedAt: coupons.redeemedAt,
+          refundedAt: coupons.refundedAt,
+        })
+        .from(coupons)
+        .where(eq(coupons.purchaseId, claim.seat.purchaseId))
+        .all();
+      const unclaimedSeats = licenceSeats.filter(
+        (seat) => seat.claimedAt === null && seat.refundedAt === null
+      ).length;
+
+      await sendNotification(gateway, {
+        workflow: "seat-claimed",
+        domainId: claim.seat.id,
+        recipients: [claim.teamAdmin],
+        actor: claim.student,
+        data: {
+          seat_id: claim.seat.id,
+          purchase_id: claim.seat.purchaseId,
+          course_id: claim.course.id,
+          course_title: claim.course.title,
+          unclaimed_seats: unclaimedSeats,
+          seats_total: licenceSeats.length,
+          url: "/team",
+        },
+      });
+    }
+  );
+}
+
+// ─── New Enrollment ───
+
+const instructors = alias(users, "instructors");
+
+/**
+ * Tells a course's Instructor that a Student enrolled in it, through an
+ * Individual Purchase or a Claimed Seat. A Lapsed Student enrolling again gets
+ * a new Enrollment, so it counts too. Buying a Team Licence enrolls nobody, so
+ * nothing calls this for it.
+ */
+export function notifyNewEnrollment(
+  gateway: NotificationGateway,
+  db: Db,
+  enrollmentId: number
+): Promise<void> {
+  return fireAndForget(
+    { workflow: "new-enrollment", domainId: enrollmentId },
+    async () => {
+      const found = db
+        .select({
+          enrollment: enrollments,
+          student: users,
+          instructor: instructors,
+          course: courses,
+        })
+        .from(enrollments)
+        .innerJoin(users, eq(enrollments.userId, users.id))
+        .innerJoin(courses, eq(enrollments.courseId, courses.id))
+        .innerJoin(instructors, eq(courses.instructorId, instructors.id))
+        .where(eq(enrollments.id, enrollmentId))
+        .get();
+      if (!found) return;
+
+      await sendNotification(gateway, {
+        workflow: "new-enrollment",
+        domainId: found.enrollment.id,
+        recipients: [found.instructor],
+        actor: found.student,
+        data: {
+          enrollment_id: found.enrollment.id,
+          course_id: found.course.id,
+          course_title: found.course.title,
+          url: `/instructor/${found.course.id}/students`,
         },
       });
     }

@@ -45,10 +45,38 @@ const discussionReplyData = z.object({
   url: appPath,
 });
 
+const seatCount = z.number().int().nonnegative();
+
+const seatClaimedData = z.object({
+  seat_id: id,
+  purchase_id: id,
+  course_id: id,
+  course_title: z.string(),
+  // Counts for the Team Licence the Seat came from, after this claim.
+  unclaimed_seats: seatCount,
+  seats_total: seatCount,
+  url: appPath,
+});
+
+const newEnrollmentData = z.object({
+  enrollment_id: id,
+  course_id: id,
+  course_title: z.string(),
+  url: appPath,
+});
+
 export const triggerDataSchema = z.discriminatedUnion("workflow", [
   z.object({
     workflow: z.literal("discussion-reply"),
     data: discussionReplyData,
+  }),
+  z.object({
+    workflow: z.literal("seat-claimed"),
+    data: seatClaimedData,
+  }),
+  z.object({
+    workflow: z.literal("new-enrollment"),
+    data: newEnrollmentData,
   }),
 ]);
 

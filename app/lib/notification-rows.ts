@@ -53,6 +53,21 @@ const renderers: {
     ],
     url: data.url,
   }),
+  "seat-claimed": (data, actorName) => ({
+    icon: "seat-claimed",
+    title: `${actorName} claimed a Seat`,
+    details: [
+      data.course_title,
+      `${data.unclaimed_seats} of ${data.seats_total} ${data.seats_total === 1 ? "Seat" : "Seats"} unclaimed`,
+    ],
+    url: data.url,
+  }),
+  "new-enrollment": (data, actorName) => ({
+    icon: "new-enrollment",
+    title: `${actorName} enrolled in ${data.course_title}`,
+    details: [],
+    url: data.url,
+  }),
 };
 
 const fallback: RowContent = {
