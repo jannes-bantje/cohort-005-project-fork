@@ -230,9 +230,9 @@ export function notifyOpenRefundRequest(
   return fireAndForget(
     { workflow: "open-refund-request", domainId: refundRequestId },
     async () => {
-      const refundRequest = db
+      const raised = db
         .select({
-          refund: refunds,
+          refundRequest: refunds,
           purchase: purchases,
           buyer: users,
           course: courses,
@@ -243,9 +243,9 @@ export function notifyOpenRefundRequest(
         .innerJoin(courses, eq(purchases.courseId, courses.id))
         .where(eq(refunds.id, refundRequestId))
         .get();
-      if (!refundRequest) return;
+      if (!raised) return;
 
-      const { refund, purchase, buyer, course } = refundRequest;
+      const { refundRequest, purchase, buyer, course } = raised;
       const platformAdmins = db
         .select()
         .from(users)
@@ -255,17 +255,17 @@ export function notifyOpenRefundRequest(
 
       await sendNotification(gateway, {
         workflow: "open-refund-request",
-        domainId: refund.id,
+        domainId: refundRequest.id,
         recipients: platformAdmins,
         actor: buyer,
         data: {
-          refund_request_id: refund.id,
+          refund_request_id: refundRequest.id,
           purchase_id: purchase.id,
           course_id: course.id,
           course_title: course.title,
           purchase_kind: kindOf(getSeats(db, purchase.id)),
           amount_cents: purchase.amountPaid,
-          reason: snippet(refund.reason),
+          reason: snippet(refundRequest.reason),
           url: "/admin/refunds",
         },
       });

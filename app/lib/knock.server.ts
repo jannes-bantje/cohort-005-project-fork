@@ -183,13 +183,13 @@ function inAppFeedPreferences(
 ): NotificationPreferences {
   const preferences = { ...CATEGORY_DEFAULTS };
   for (const category of CATEGORY_KEYS) {
-    const setting = preferenceSet.categories?.[category];
-    if (setting === undefined || setting === null) continue;
-    if (typeof setting === "boolean") {
-      preferences[category] = setting;
+    const preference = preferenceSet.categories?.[category];
+    if (preference === undefined || preference === null) continue;
+    if (typeof preference === "boolean") {
+      preferences[category] = preference;
       continue;
     }
-    const inAppFeed = setting.channel_types?.in_app_feed;
+    const inAppFeed = preference.channel_types?.in_app_feed;
     if (inAppFeed !== undefined && inAppFeed !== null) {
       preferences[category] = inAppFeed !== false;
     }
