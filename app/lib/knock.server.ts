@@ -11,7 +11,7 @@ import { feedUserToken, type UserTokens } from "~/lib/notifications.server";
 // ─── Knock ───
 // The Knock-backed NotificationGateway. When any of the four runtime keys is
 // missing, Notifications are off: the factory returns the disabled gateway and
-// one warning is printed, like the mailer's .outbox fallback.
+// one warning is printed at startup, like the mailer's .outbox fallback.
 //
 // Only route modules import this file. The Notifications module takes the
 // gateway as a parameter instead, so tests never reach Knock. It also prepares
@@ -31,9 +31,14 @@ type KnockConfig = {
   feedChannelId: string;
 };
 
-// Read once, on first use. `null` means Notifications are off.
+// Read once. `null` means Notifications are off.
 let config: KnockConfig | null | undefined;
 let gateway: NotificationGateway | undefined;
+
+// Read when the server loads this module, so missing keys are reported once at
+// startup rather than on the first request. Never under vitest: tests have no
+// keys and must not print the warning.
+if (!process.env.VITEST) knockConfig();
 
 function knockConfig(): KnockConfig | null {
   if (config !== undefined) return config;
