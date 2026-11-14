@@ -272,7 +272,7 @@ const KIND: Record<
 };
 const kindOf = (item: FeedItem) => KIND[item.source.key] ?? KIND["discussion-reply"];
 
-function Badge({ n, className }: { n: number; className?: string }) {
+function Badge({ n, max = 99, className }: { n: number; max?: number; className?: string }) {
   if (!n) return null;
   return (
     <span
@@ -281,7 +281,7 @@ function Badge({ n, className }: { n: number; className?: string }) {
         className
       )}
     >
-      {n > 99 ? "99+" : n}
+      {n > max ? `${max}+` : n}
     </span>
   );
 }
@@ -321,8 +321,9 @@ export function VariantASidebarHeader() {
         className="relative rounded-md p-1.5 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       >
         <Bell className="size-5" />
-        <Badge n={unseen} className="absolute -right-1.5 -top-1" />
+        <Badge n={unseen} max={9} className="absolute -right-1.5 -top-1" />
       </button>
+      {!open && <BellPopups onOpen={(item) => { feed?.markAsRead(item); navigate(urlOf(item)); }} />}
       {open && (
         <div className="absolute left-full top-0 z-40 ml-3 w-96 rounded-lg border bg-popover text-popover-foreground shadow-xl">
           <div className="flex items-center gap-2 border-b px-4 py-3">
@@ -372,6 +373,51 @@ export function VariantASidebarHeader() {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// A's pop-ups: a small stack beside the bell for Notifications that arrive in
+// real time. They don't change seen/read; the badge still counts them.
+function BellPopups({ onOpen }: { onOpen: (item: FeedItem) => void }) {
+  const { feed } = useNotificationFeed();
+  const [popups, setPopups] = useState<FeedItem[]>([]);
+
+  useEffect(() => {
+    if (!feed) return;
+    const onNew = ({ items }: { items: FeedItem[] }) => {
+      setPopups((p) => [...items, ...p].slice(0, 3));
+      for (const item of items) {
+        setTimeout(() => setPopups((p) => p.filter((x) => x.id !== item.id)), 6000);
+      }
+    };
+    feed.on("items.received.realtime", onNew as never);
+    return () => feed.off("items.received.realtime", onNew as never);
+  }, [feed]);
+
+  if (!popups.length) return null;
+  return (
+    <div className="absolute left-full top-0 z-40 ml-3 w-80 space-y-2">
+      {popups.map((item) => (
+        <div
+          key={item.id}
+          className="flex animate-in slide-in-from-left-2 items-start gap-2 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
+        >
+          <button className="flex-1 text-left" onClick={() => { setPopups((p) => p.filter((x) => x.id !== item.id)); onOpen(item); }}>
+            <span
+              className="block [&_p]:inline [&_strong]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: knockHtml(item) }}
+            />
+            <span className="mt-1 block text-xs text-muted-foreground">just now</span>
+          </button>
+          <button
+            onClick={() => setPopups((p) => p.filter((x) => x.id !== item.id))}
+            className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
