@@ -14,9 +14,11 @@ import {
   UserRole,
   users,
 } from "~/db/schema";
-import type {
-  NotificationGateway,
-  NotificationUser,
+import {
+  knockUser,
+  knockUserId,
+  type NotificationGateway,
+  type Person,
 } from "~/lib/notification-gateway";
 import type { WorkflowKey } from "~/lib/notification-keys";
 import {
@@ -56,13 +58,6 @@ export async function fireAndForget(
       error
     );
   }
-}
-
-type Person = { id: number; name: string; email: string };
-
-/** A Cadence user as Knock knows them: the Knock id is the Cadence id as a string. */
-function knockUser(person: Person): NotificationUser {
-  return { id: String(person.id), name: person.name, email: person.email };
 }
 
 /**
@@ -567,9 +562,9 @@ export function feedUserToken(
 }
 
 /**
- * Signs an RS256 JWT whose `sub` is the Cadence user id as a string, the shape
- * Knock expects. `signingKey` is the PKCS#8 private key as PEM, or as
- * base64-encoded PEM (how KNOCK_SIGNING_KEY holds it).
+ * Signs an RS256 JWT whose `sub` is the Knock user id, the shape Knock
+ * expects. `signingKey` is the PKCS#8 private key as PEM, or as base64-encoded
+ * PEM (how KNOCK_SIGNING_KEY holds it).
  */
 function signUserToken(
   userId: number,
@@ -579,7 +574,7 @@ function signUserToken(
   const expiresAt = nowSeconds + USER_TOKEN_LIFETIME_SECONDS;
   const header = base64url({ alg: "RS256", typ: "JWT" });
   const claims = base64url({
-    sub: String(userId),
+    sub: knockUserId(userId),
     iat: nowSeconds,
     exp: expiresAt,
   });

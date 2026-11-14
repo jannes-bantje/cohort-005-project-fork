@@ -1,7 +1,10 @@
-import { RefundStatus, type users } from "~/db/schema";
-import type {
-  NotificationGateway,
-  NotificationPreferences,
+import { RefundStatus, type UserRole } from "~/db/schema";
+import {
+  knockUser,
+  knockUserId,
+  type NotificationGateway,
+  type NotificationPreferences,
+  type Person,
 } from "~/lib/notification-gateway";
 import type { CategoryKey } from "~/lib/notification-keys";
 import {
@@ -14,7 +17,7 @@ import { listTeamLicences, type Db } from "~/lib/refunds.server";
 // Reading and saving a person's Notification Preferences in Knock, through the
 // NotificationGateway. Knock is the only place they live (docs/adr/0013).
 
-type User = Pick<typeof users.$inferSelect, "id" | "name" | "email" | "role">;
+type PersonWithRole = Person & { role: UserRole };
 
 export type NotificationPreferenceSwitch = {
   category: CategoryKey;
@@ -35,16 +38,12 @@ export type NotificationPreferencesCard =
 export async function loadNotificationPreferences(
   gateway: NotificationGateway,
   db: Db,
-  user: User
+  user: PersonWithRole
 ): Promise<NotificationPreferencesCard> {
-  const userId = String(user.id);
+  const userId = knockUserId(user.id);
   let values: NotificationPreferences;
   try {
-    await gateway.identifyUser({
-      id: userId,
-      name: user.name,
-      email: user.email,
-    });
+    await gateway.identifyUser(knockUser(user));
     values = await gateway.getPreferences(userId);
   } catch (error) {
     console.error(
@@ -76,7 +75,7 @@ export async function saveNotificationPreference(
   gateway: NotificationGateway,
   preference: { userId: number; category: CategoryKey; enabled: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const userId = String(preference.userId);
+  const userId = knockUserId(preference.userId);
   try {
     await gateway.setPreference({
       userId,

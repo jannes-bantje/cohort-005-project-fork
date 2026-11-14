@@ -2,8 +2,10 @@ import { Knock } from "@knocklabs/node";
 import { loadEnvFile } from "~/lib/env.server";
 import {
   disabledNotificationGateway,
+  knockUserId,
   type NotificationGateway,
   type NotificationPreferences,
+  type Person,
 } from "~/lib/notification-gateway";
 import { CATEGORY_DEFAULTS, CATEGORY_KEYS } from "~/lib/notification-keys";
 import { feedUserToken, type UserTokens } from "~/lib/notifications.server";
@@ -104,7 +106,7 @@ const userTokens: UserTokens = new Map();
  * and also hides the bell, so the page still renders.
  */
 export function notificationFeedAuth(
-  user: { id: number; name: string; email: string } | null
+  user: Person | null
 ): NotificationFeedAuth | null {
   const knock = knockConfig();
   if (!knock || !user) return null;
@@ -116,7 +118,7 @@ export function notificationFeedAuth(
       now: new Date(),
     });
     return {
-      userId: String(user.id),
+      userId: knockUserId(user.id),
       token,
       publicApiKey: knock.publicApiKey,
       feedChannelId: knock.feedChannelId,

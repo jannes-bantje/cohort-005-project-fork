@@ -12,11 +12,28 @@ import {
 //
 // Ids are Knock user ids: the Cadence user id as a string.
 
+/** Someone in Cadence who can get or cause a Notification. */
+export type Person = {
+  id: number;
+  name: string;
+  email: string;
+};
+
+/** A Person as Knock knows them. */
 export type NotificationUser = {
   id: string;
   name: string;
   email: string;
 };
+
+/** The Knock user id for a Cadence user id: the same number as a string. */
+export function knockUserId(id: number): string {
+  return String(id);
+}
+
+export function knockUser(person: Person): NotificationUser {
+  return { id: knockUserId(person.id), name: person.name, email: person.email };
+}
 
 export type TriggerInput = {
   workflow: WorkflowKey;
