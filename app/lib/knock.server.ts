@@ -8,7 +8,7 @@ import {
   type Person,
 } from "~/lib/notification-gateway";
 import { CATEGORY_DEFAULTS, CATEGORY_KEYS } from "~/lib/notification-keys";
-import { feedUserToken, type UserTokens } from "~/lib/notifications.server";
+import { feedUserToken, type UserTokens } from "~/lib/feed-user-token.server";
 
 // ─── Knock ───
 // The Knock-backed NotificationGateway. When any of the four runtime keys is
