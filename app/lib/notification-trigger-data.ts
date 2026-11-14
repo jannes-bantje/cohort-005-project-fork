@@ -35,17 +35,6 @@ const id = z.number().int();
 const appPath = z.string().startsWith("/");
 const snippetText = z.string().max(MAX_SNIPPET_LENGTH);
 
-const discussionReplyData = z.object({
-  comment_id: id,
-  discussion_question_id: id,
-  lesson_id: id,
-  course_id: id,
-  course_title: z.string(),
-  lesson_title: z.string(),
-  excerpt: snippetText,
-  url: appPath,
-});
-
 const discussionQuestionData = z.object({
   comment_id: id,
   lesson_id: id,
@@ -54,6 +43,10 @@ const discussionQuestionData = z.object({
   lesson_title: z.string(),
   excerpt: snippetText,
   url: appPath,
+});
+
+const discussionReplyData = discussionQuestionData.extend({
+  discussion_question_id: id,
 });
 
 const purchaseKind = z.enum(PURCHASE_KINDS);
