@@ -41,6 +41,8 @@ interface SidebarProps {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
+  /** Shown in the header next to "Cadence": the Notification bell. */
+  notificationBell?: React.ReactNode;
 }
 
 interface NavItem {
@@ -117,6 +119,7 @@ export function Sidebar({
   currentUser,
   recentCourses = [],
   isTeamAdmin = false,
+  notificationBell,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
   const [isDark, setIsDark] = useState(false);
@@ -140,6 +143,7 @@ export function Sidebar({
         <NavLink to="/" className="text-lg font-bold tracking-tight">
           Cadence
         </NavLink>
+        {notificationBell}
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
