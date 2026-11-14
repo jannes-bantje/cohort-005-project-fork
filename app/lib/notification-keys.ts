@@ -43,7 +43,7 @@ export const WORKFLOW_CATEGORY: Record<WorkflowKey, CategoryKey> = {
 };
 
 // Whether each category is on for someone who has never changed it.
-// Instructors opt in to Enrollments.
+// Enrollments are off until an Instructor turns them on.
 export const CATEGORY_DEFAULTS: Record<CategoryKey, boolean> = {
   "refund-request-decisions": true,
   "open-refund-requests": true,

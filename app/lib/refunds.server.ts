@@ -16,6 +16,7 @@ import {
   LessonProgressStatus,
   RefundStatus,
 } from "~/db/schema";
+import type { PurchaseKind } from "~/lib/purchase-kind";
 import { formatPrice } from "~/lib/utils";
 import {
   REFUND_COMPLETION_LIMIT,
@@ -77,13 +78,13 @@ export function getSeats(db: Queryable, purchaseId: number): Seat[] {
     .all();
 }
 
-function isClaimed(seat: Seat) {
+export function isClaimed(seat: Seat) {
   return seat.redeemedAt !== null;
 }
 
 // There is no column saying which kind a Purchase is: a Team Licence is the
 // Purchase that granted Seats, and every Team Licence grants at least one.
-export type PurchaseKind = "individual_purchase" | "team_licence";
+export type { PurchaseKind };
 
 export function kindOf(seats: Seat[]): PurchaseKind {
   return seats.length > 0 ? "team_licence" : "individual_purchase";

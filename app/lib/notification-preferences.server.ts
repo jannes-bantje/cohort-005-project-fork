@@ -1,21 +1,23 @@
-import { eq } from "drizzle-orm";
-import { coupons, purchases, type users } from "~/db/schema";
-import type {
-  NotificationGateway,
-  NotificationPreferences,
+import { RefundStatus, type UserRole } from "~/db/schema";
+import {
+  knockUser,
+  knockUserId,
+  type NotificationGateway,
+  type NotificationPreferences,
+  type Person,
 } from "~/lib/notification-gateway";
 import type { CategoryKey } from "~/lib/notification-keys";
 import {
   NOTIFICATION_PREFERENCE_LABELS,
   visibleNotificationPreferences,
 } from "~/lib/notification-preferences";
-import type { Db } from "~/lib/refunds.server";
+import { listTeamLicences, type Db } from "~/lib/refunds.server";
 
 // ─── Notification Preferences (server) ───
 // Reading and saving a person's Notification Preferences in Knock, through the
 // NotificationGateway. Knock is the only place they live (docs/adr/0013).
 
-type User = Pick<typeof users.$inferSelect, "id" | "name" | "email" | "role">;
+type PersonWithRole = Person & { role: UserRole };
 
 export type NotificationPreferenceSwitch = {
   category: CategoryKey;
@@ -36,16 +38,12 @@ export type NotificationPreferencesCard =
 export async function loadNotificationPreferences(
   gateway: NotificationGateway,
   db: Db,
-  user: User
+  user: PersonWithRole
 ): Promise<NotificationPreferencesCard> {
-  const userId = String(user.id);
+  const userId = knockUserId(user.id);
   let values: NotificationPreferences;
   try {
-    await gateway.identifyUser({
-      id: userId,
-      name: user.name,
-      email: user.email,
-    });
+    await gateway.identifyUser(knockUser(user));
     values = await gateway.getPreferences(userId);
   } catch (error) {
     console.error(
@@ -56,7 +54,7 @@ export async function loadNotificationPreferences(
   }
   const visible = visibleNotificationPreferences({
     role: user.role,
-    ownsTeamLicence: ownsTeamLicence(db, user.id),
+    ownsTeamLicence: ownsLiveTeamLicence(db, user.id),
   });
   return {
     available: true,
@@ -77,7 +75,7 @@ export async function saveNotificationPreference(
   gateway: NotificationGateway,
   preference: { userId: number; category: CategoryKey; enabled: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const userId = String(preference.userId);
+  const userId = knockUserId(preference.userId);
   try {
     await gateway.setPreference({
       userId,
@@ -97,14 +95,12 @@ export async function saveNotificationPreference(
   return { ok: true };
 }
 
-// A Team Licence is a Purchase that grants Seats.
-function ownsTeamLicence(db: Db, userId: number): boolean {
-  const seat = db
-    .select({ id: coupons.id })
-    .from(coupons)
-    .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
-    .where(eq(purchases.userId, userId))
-    .limit(1)
-    .get();
-  return seat !== undefined;
+// A Team Licence with an Approved Refund Request has no Seats left to claim,
+// so only Team Licences without one count. Once approved, a Purchase can't get
+// another Refund Request, so the latest one says whether it was refunded.
+function ownsLiveTeamLicence(db: Db, userId: number): boolean {
+  return listTeamLicences(db, userId, new Date()).some(
+    (teamLicence) =>
+      teamLicence.latestRefundRequest?.status !== RefundStatus.Approved
+  );
 }

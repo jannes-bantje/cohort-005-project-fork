@@ -4,6 +4,7 @@ import {
   saveNotificationPreference,
 } from "./notification-preferences.server";
 import * as schema from "~/db/schema";
+import { approveRefundRequest, raiseRefundRequest } from "~/lib/refunds.server";
 import { captureConsoleErrors } from "~/test/capture-console-errors";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import { recordingNotificationGateway } from "~/test/recording-notification-gateway";
@@ -87,6 +88,61 @@ describe("loadNotificationPreferences", () => {
     });
   });
 
+  it("hides Claimed Seats from a Team Admin whose only Team Licence has an Approved Refund Request", async () => {
+    const teamLicenceId = buyTeamLicence(base.user.id, 3);
+    refundTeamLicence(teamLicenceId);
+
+    const result = await loadNotificationPreferences(
+      recordingNotificationGateway(),
+      db,
+      base.user
+    );
+
+    expect(result).toEqual({
+      available: true,
+      preferences: [
+        {
+          category: "refund-request-decisions",
+          label: "Refund Request decisions",
+          enabled: true,
+        },
+        {
+          category: "discussion-replies",
+          label: "Discussion Replies",
+          enabled: true,
+        },
+      ],
+    });
+  });
+
+  it("still shows Claimed Seats to a Team Admin with one refunded and one live Team Licence", async () => {
+    refundTeamLicence(buyTeamLicence(base.user.id, 3));
+    buyTeamLicence(base.user.id, 2);
+
+    const result = await loadNotificationPreferences(
+      recordingNotificationGateway(),
+      db,
+      base.user
+    );
+
+    expect(result).toEqual({
+      available: true,
+      preferences: [
+        {
+          category: "refund-request-decisions",
+          label: "Refund Request decisions",
+          enabled: true,
+        },
+        {
+          category: "discussion-replies",
+          label: "Discussion Replies",
+          enabled: true,
+        },
+        { category: "claimed-seats", label: "Claimed Seats", enabled: true },
+      ],
+    });
+  });
+
   it("shows no switches when Knock can't be reached", async () => {
     const gateway = recordingNotificationGateway({ reject: true });
     let result: unknown;
@@ -145,7 +201,7 @@ describe("saveNotificationPreference", () => {
   });
 });
 
-function buyTeamLicence(userId: number, seats: number) {
+function buyTeamLicence(userId: number, seats: number): number {
   const team = db.insert(schema.teams).values({}).returning().get();
   const purchase = db
     .insert(schema.purchases)
@@ -162,4 +218,33 @@ function buyTeamLicence(userId: number, seats: number) {
       })
       .run();
   }
+  return purchase.id;
+}
+
+function refundTeamLicence(purchaseId: number) {
+  const platformAdmin = db
+    .insert(schema.users)
+    .values({
+      name: "Platform Admin",
+      email: `admin-${purchaseId}@example.com`,
+      role: schema.UserRole.Admin,
+    })
+    .returning()
+    .get();
+  const raised = raiseRefundRequest(
+    db,
+    purchaseId,
+    base.user.id,
+    "We no longer need it",
+    new Date()
+  );
+  if (!raised.ok) throw new Error(raised.error);
+  const approved = approveRefundRequest(
+    db,
+    raised.refundRequestId,
+    platformAdmin.id,
+    null,
+    new Date()
+  );
+  if (!approved.ok) throw new Error(approved.error);
 }

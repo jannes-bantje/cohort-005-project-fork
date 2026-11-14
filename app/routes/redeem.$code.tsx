@@ -24,7 +24,7 @@ function getCourseById(id: number) {
   return db.select().from(courses).where(eq(courses.id, id)).get();
 }
 
-function getCouponByCode(code: string) {
+function getSeatByCode(code: string) {
   return db.select().from(coupons).where(eq(coupons.code, code)).get();
 }
 
@@ -45,7 +45,7 @@ const SEAT_ON_HOLD =
 const SEAT_REFUNDED =
   "This seat is no longer available. Ask the person who shared it with you.";
 
-type RedeemResult =
+type ClaimSeatResult =
   | {
       ok: true;
       seatId: number;
@@ -53,21 +53,21 @@ type RedeemResult =
     }
   | { ok: false; error: string };
 
-function redeemCoupon(
+function claimSeat(
   code: string,
   userId: number,
   userCountry: string
-): RedeemResult {
-  const coupon = getCouponByCode(code);
-  if (!coupon) {
-    return { ok: false, error: "Coupon not found" };
+): ClaimSeatResult {
+  const seat = getSeatByCode(code);
+  if (!seat) {
+    return { ok: false, error: "Seat not found" };
   }
 
-  if (coupon.redeemedByUserId !== null) {
-    return { ok: false, error: "Coupon has already been redeemed" };
+  if (seat.redeemedByUserId !== null) {
+    return { ok: false, error: "This Seat has already been claimed" };
   }
 
-  const availability = getSeatAvailability(db, coupon);
+  const availability = getSeatAvailability(db, seat);
   if (availability === "on_hold") {
     return { ok: false, error: SEAT_ON_HOLD };
   }
@@ -81,7 +81,7 @@ function redeemCoupon(
     .where(
       and(
         eq(enrollments.userId, userId),
-        eq(enrollments.courseId, coupon.courseId)
+        eq(enrollments.courseId, seat.courseId)
       )
     )
     .get();
@@ -93,14 +93,14 @@ function redeemCoupon(
   const purchase = db
     .select()
     .from(purchases)
-    .where(eq(purchases.id, coupon.purchaseId))
+    .where(eq(purchases.id, seat.purchaseId))
     .get();
 
   if (purchase?.country && purchase.country !== userCountry) {
     return {
       ok: false,
       error:
-        "This coupon can only be redeemed from the same country as the purchaser",
+        "This Seat can only be claimed from the same country as the Team Admin who bought the Team Licence",
     };
   }
 
@@ -109,16 +109,16 @@ function redeemCoupon(
       redeemedByUserId: userId,
       redeemedAt: new Date().toISOString(),
     })
-    .where(eq(coupons.id, coupon.id))
+    .where(eq(coupons.id, seat.id))
     .run();
 
   const enrollment = db
     .insert(enrollments)
-    .values({ userId, courseId: coupon.courseId })
+    .values({ userId, courseId: seat.courseId })
     .returning()
     .get();
 
-  return { ok: true, seatId: coupon.id, enrollment };
+  return { ok: true, seatId: seat.id, enrollment };
 }
 
 const redeemParamsSchema = z.object({
@@ -130,19 +130,19 @@ const redeemActionSchema = z.object({
 });
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  const title = loaderData?.course?.title ?? "Redeem Coupon";
+  const title = loaderData?.course?.title ?? "Claim a Seat";
   return [
-    { title: `Redeem: ${title} — Cadence` },
-    { name: "description", content: `Redeem your coupon for ${title}` },
+    { title: `Claim a Seat: ${title} — Cadence` },
+    { name: "description", content: `Claim your Seat on ${title}` },
   ];
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const { code } = parseParams(params, redeemParamsSchema);
 
-  const coupon = getCouponByCode(code);
-  if (!coupon) {
-    throw data("Coupon not found.", { status: 404 });
+  const seat = getSeatByCode(code);
+  if (!seat) {
+    throw data("Seat not found.", { status: 404 });
   }
 
   const currentUserId = await getCurrentUserId(request);
@@ -152,14 +152,14 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     );
   }
 
-  const course = getCourseById(coupon.courseId);
+  const course = getCourseById(seat.courseId);
   if (!course) {
     throw data("Course not found.", { status: 404 });
   }
 
-  const alreadyRedeemed = coupon.redeemedByUserId !== null;
-  const alreadyEnrolled = isUserEnrolled(currentUserId, coupon.courseId);
-  const availability = getSeatAvailability(db, coupon);
+  const alreadyClaimed = seat.redeemedByUserId !== null;
+  const alreadyEnrolled = isUserEnrolled(currentUserId, seat.courseId);
+  const availability = getSeatAvailability(db, seat);
   const unavailableReason =
     availability === "on_hold"
       ? SEAT_ON_HOLD
@@ -169,12 +169,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
   // Check country mismatch upfront so we can show a clear message
   let countryMismatch = false;
-  if (!alreadyRedeemed && !alreadyEnrolled) {
+  if (!alreadyClaimed && !alreadyEnrolled) {
     const userCountry = await resolveCountry(request);
     const purchase = db
       .select()
       .from(purchases)
-      .where(eq(purchases.id, coupon.purchaseId))
+      .where(eq(purchases.id, seat.purchaseId))
       .get();
     if (purchase?.country && purchase.country !== (userCountry ?? "")) {
       countryMismatch = true;
@@ -184,7 +184,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   return {
     course: { id: course.id, title: course.title, slug: course.slug },
     code,
-    alreadyRedeemed,
+    alreadyClaimed,
     alreadyEnrolled,
     countryMismatch,
     unavailableReason,
@@ -207,7 +207,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const userCountry = await resolveCountry(request);
-  const result = redeemCoupon(code, currentUserId, userCountry ?? "");
+  const result = claimSeat(code, currentUserId, userCountry ?? "");
 
   if (!result.ok) {
     return data({ error: result.error }, { status: 400 });
@@ -233,7 +233,7 @@ export default function Redeem({
   const {
     course,
     code,
-    alreadyRedeemed,
+    alreadyClaimed,
     alreadyEnrolled,
     countryMismatch,
     unavailableReason,
@@ -251,11 +251,11 @@ export default function Redeem({
 
   // Determine which state to show
   const canRedeem =
-    !alreadyRedeemed && !alreadyEnrolled && !countryMismatch && !unavailableReason;
+    !alreadyClaimed && !alreadyEnrolled && !countryMismatch && !unavailableReason;
 
   return (
     <div className="mx-auto max-w-2xl p-6 lg:p-8">
-      <h1 className="mb-2 text-2xl font-bold">Redeem Coupon</h1>
+      <h1 className="mb-2 text-2xl font-bold">Claim a Seat</h1>
       <p className="mb-8 text-muted-foreground">
         You&apos;ve been invited to enroll in a course.
       </p>
@@ -268,21 +268,21 @@ export default function Redeem({
 
           <h2 className="mb-2 text-xl font-semibold">{course.title}</h2>
           <p className="mb-6 text-sm text-muted-foreground">
-            Coupon code:{" "}
+            Seat:{" "}
             <code className="rounded bg-muted px-2 py-0.5">{code}</code>
           </p>
 
-          {alreadyRedeemed ? (
+          {alreadyClaimed ? (
             <div className="rounded-lg bg-destructive/10 p-4">
               <div className="flex items-center justify-center gap-2 text-destructive">
                 <AlertCircle className="size-5" />
                 <span className="font-medium">
-                  This coupon has already been used
+                  This Seat has already been claimed
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                Someone has already claimed this seat. Please ask the person who
-                shared this link for a new coupon.
+                Someone else claimed this Seat. Ask the person who shared this
+                link for another Seat.
               </p>
             </div>
           ) : alreadyEnrolled ? (
@@ -294,8 +294,8 @@ export default function Redeem({
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                You already have access to this course. The coupon has not been
-                used, so it can still be shared with someone else.
+                You&apos;re already enrolled on this course. This Seat is still
+                unclaimed, so it can be shared with someone else.
               </p>
               <Link to={`/courses/${course.slug}`}>
                 <Button className="mt-4" size="lg">
@@ -320,9 +320,9 @@ export default function Redeem({
                 <span className="font-medium">Region restriction</span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                This coupon can only be redeemed from the same country as the
-                person who purchased it. Your location doesn&apos;t match the
-                purchaser&apos;s country.
+                This Seat can only be claimed from the same country as the Team
+                Admin who bought the Team Licence. Your location doesn&apos;t
+                match their country.
               </p>
             </div>
           ) : (

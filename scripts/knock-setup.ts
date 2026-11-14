@@ -13,6 +13,7 @@
 // Every call is an upsert, so it's safe to run again whenever this changes.
 // Needs KNOCK_SERVICE_TOKEN in .env (scripts/setup-knock.sh collects it).
 
+import { z } from "zod";
 import { loadEnvFile } from "../app/lib/env.server";
 import {
   CATEGORY_DEFAULTS,
@@ -69,7 +70,7 @@ async function managementApi(
   method: "GET" | "PUT",
   path: string,
   body?: unknown
-) {
+): Promise<unknown> {
   const response = await fetch(`${MANAGEMENT_API}${path}`, {
     method,
     headers: {
@@ -88,12 +89,15 @@ async function managementApi(
   return text ? JSON.parse(text) : null;
 }
 
+const environmentsSchema = z.object({
+  entries: z.array(z.object({ slug: z.string() })),
+});
+
 // One Knock account per developer, single environment. An older account with
 // several environments uses Development.
 async function environmentSlug(): Promise<string> {
-  const environments: { entries: { slug: string }[] } = await managementApi(
-    "GET",
-    "/environments"
+  const environments = environmentsSchema.parse(
+    await managementApi("GET", "/environments")
   );
   const slugs = environments.entries.map((environment) => environment.slug);
   if (slugs.includes("development")) return "development";

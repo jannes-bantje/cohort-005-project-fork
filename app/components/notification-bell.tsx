@@ -66,7 +66,7 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
   },
   "seat-claimed": {
     Icon: UserPlus,
-    tint: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300",
+    tint: "bg-teal-50 text-teal-600 dark:bg-teal-950 dark:text-teal-300",
   },
   "new-enrollment": {
     Icon: GraduationCap,

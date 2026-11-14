@@ -28,7 +28,7 @@ describe("notificationRow", () => {
       workflow: "discussion-reply",
       data: {
         comment_id: 12,
-        question_comment_id: 7,
+        discussion_question_id: 7,
         lesson_id: 3,
         course_id: 1,
         course_title: "Introduction to TypeScript",

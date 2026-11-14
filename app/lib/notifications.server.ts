@@ -1,4 +1,3 @@
-import { sign } from "node:crypto";
 import { alias } from "drizzle-orm/sqlite-core";
 import { and, eq } from "drizzle-orm";
 import {
@@ -14,9 +13,10 @@ import {
   UserRole,
   users,
 } from "~/db/schema";
-import type {
-  NotificationGateway,
-  NotificationUser,
+import {
+  knockUser,
+  type NotificationGateway,
+  type Person,
 } from "~/lib/notification-gateway";
 import type { WorkflowKey } from "~/lib/notification-keys";
 import {
@@ -24,7 +24,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import { getSeats, kindOf, type Db } from "~/lib/refunds.server";
+import { getSeats, isClaimed, kindOf, type Db } from "~/lib/refunds.server";
 
 // ─── Notifications ───
 // Telling people that something which concerns them has happened, through
@@ -58,13 +58,6 @@ export async function fireAndForget(
   }
 }
 
-type Person = { id: number; name: string; email: string };
-
-/** A Cadence user as Knock knows them: the Knock id is the Cadence id as a string. */
-function knockUser(person: Person): NotificationUser {
-  return { id: String(person.id), name: person.name, email: person.email };
-}
-
 /**
  * Triggers one workflow for everyone in `recipients` except the actor, with
  * the idempotency key `<workflow>:<domainId>`. Nobody hears about their own
@@ -93,13 +86,39 @@ async function sendNotification<W extends ContractWorkflow>(
   });
 }
 
-function lessonUrl(courseSlug: string, lessonId: number) {
-  return `/courses/${courseSlug}/lessons/${lessonId}`;
+// ─── Discussions ───
+
+const instructors = alias(users, "instructors");
+
+/** The lesson a Discussion is on, with its course and the course's Instructor. */
+function findDiscussionLesson(db: Db, lessonId: number) {
+  return db
+    .select({ lesson: lessons, course: courses, instructor: instructors })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .innerJoin(courses, eq(modules.courseId, courses.id))
+    .innerJoin(instructors, eq(courses.instructorId, instructors.id))
+    .where(eq(lessons.id, lessonId))
+    .get();
+}
+
+/** Where a Discussion Notification points: the lesson and its course. */
+function discussionLessonData({
+  lesson,
+  course,
+}: NonNullable<ReturnType<typeof findDiscussionLesson>>) {
+  return {
+    lesson_id: lesson.id,
+    course_id: course.id,
+    course_title: course.title,
+    lesson_title: lesson.title,
+    url: `/courses/${course.slug}/lessons/${lesson.id}`,
+  };
 }
 
 // ─── Discussion Reply ───
 
-const questions = alias(comments, "questions");
+const discussionQuestions = alias(comments, "discussion_questions");
 const questionAuthors = alias(users, "question_authors");
 
 /**
@@ -110,30 +129,33 @@ const questionAuthors = alias(users, "question_authors");
 export function notifyDiscussionReply(
   gateway: NotificationGateway,
   db: Db,
-  replyId: number
+  discussionReplyId: number
 ): Promise<void> {
   return fireAndForget(
-    { workflow: "discussion-reply", domainId: replyId },
+    { workflow: "discussion-reply", domainId: discussionReplyId },
     async () => {
       const reply = db
         .select({
           comment: comments,
-          question: questions,
+          question: discussionQuestions,
           replier: users,
           questionAuthor: questionAuthors,
-          lesson: lessons,
-          course: courses,
         })
         .from(comments)
-        .innerJoin(questions, eq(comments.parentId, questions.id))
+        .innerJoin(
+          discussionQuestions,
+          eq(comments.parentId, discussionQuestions.id)
+        )
         .innerJoin(users, eq(comments.userId, users.id))
-        .innerJoin(questionAuthors, eq(questions.userId, questionAuthors.id))
-        .innerJoin(lessons, eq(comments.lessonId, lessons.id))
-        .innerJoin(modules, eq(lessons.moduleId, modules.id))
-        .innerJoin(courses, eq(modules.courseId, courses.id))
-        .where(eq(comments.id, replyId))
+        .innerJoin(
+          questionAuthors,
+          eq(discussionQuestions.userId, questionAuthors.id)
+        )
+        .where(eq(comments.id, discussionReplyId))
         .get();
       if (!reply) return;
+      const discussionLesson = findDiscussionLesson(db, reply.comment.lessonId);
+      if (!discussionLesson) return;
 
       await sendNotification(gateway, {
         workflow: "discussion-reply",
@@ -142,13 +164,9 @@ export function notifyDiscussionReply(
         actor: reply.replier,
         data: {
           comment_id: reply.comment.id,
-          question_comment_id: reply.question.id,
-          lesson_id: reply.lesson.id,
-          course_id: reply.course.id,
-          course_title: reply.course.title,
-          lesson_title: reply.lesson.title,
+          discussion_question_id: reply.question.id,
           excerpt: snippet(reply.comment.body),
-          url: lessonUrl(reply.course.slug, reply.lesson.id),
+          ...discussionLessonData(discussionLesson),
         },
       });
     }
@@ -156,8 +174,6 @@ export function notifyDiscussionReply(
 }
 
 // ─── Discussion Question ───
-
-const instructors = alias(users, "instructors");
 
 /**
  * Tells the course's Instructor that someone else asked a Discussion Question
@@ -173,36 +189,27 @@ export function notifyDiscussionQuestion(
     { workflow: "discussion-question", domainId: commentId },
     async () => {
       const question = db
-        .select({
-          comment: comments,
-          asker: users,
-          instructor: instructors,
-          lesson: lessons,
-          course: courses,
-        })
+        .select({ comment: comments, asker: users })
         .from(comments)
         .innerJoin(users, eq(comments.userId, users.id))
-        .innerJoin(lessons, eq(comments.lessonId, lessons.id))
-        .innerJoin(modules, eq(lessons.moduleId, modules.id))
-        .innerJoin(courses, eq(modules.courseId, courses.id))
-        .innerJoin(instructors, eq(courses.instructorId, instructors.id))
         .where(eq(comments.id, commentId))
         .get();
       if (!question) return;
+      const discussionLesson = findDiscussionLesson(
+        db,
+        question.comment.lessonId
+      );
+      if (!discussionLesson) return;
 
       await sendNotification(gateway, {
         workflow: "discussion-question",
         domainId: question.comment.id,
-        recipients: [question.instructor],
+        recipients: [discussionLesson.instructor],
         actor: question.asker,
         data: {
           comment_id: question.comment.id,
-          lesson_id: question.lesson.id,
-          course_id: question.course.id,
-          course_title: question.course.title,
-          lesson_title: question.lesson.title,
           excerpt: snippet(question.comment.body),
-          url: lessonUrl(question.course.slug, question.lesson.id),
+          ...discussionLessonData(discussionLesson),
         },
       });
     }
@@ -224,9 +231,9 @@ export function notifyOpenRefundRequest(
   return fireAndForget(
     { workflow: "open-refund-request", domainId: refundRequestId },
     async () => {
-      const refundRequest = db
+      const raised = db
         .select({
-          refund: refunds,
+          refundRequest: refunds,
           purchase: purchases,
           buyer: users,
           course: courses,
@@ -237,9 +244,9 @@ export function notifyOpenRefundRequest(
         .innerJoin(courses, eq(purchases.courseId, courses.id))
         .where(eq(refunds.id, refundRequestId))
         .get();
-      if (!refundRequest) return;
+      if (!raised) return;
 
-      const { refund, purchase, buyer, course } = refundRequest;
+      const { refundRequest, purchase, buyer, course } = raised;
       const platformAdmins = db
         .select()
         .from(users)
@@ -249,17 +256,17 @@ export function notifyOpenRefundRequest(
 
       await sendNotification(gateway, {
         workflow: "open-refund-request",
-        domainId: refund.id,
+        domainId: refundRequest.id,
         recipients: platformAdmins,
         actor: buyer,
         data: {
-          refund_request_id: refund.id,
+          refund_request_id: refundRequest.id,
           purchase_id: purchase.id,
           course_id: course.id,
           course_title: course.title,
           purchase_kind: kindOf(getSeats(db, purchase.id)),
           amount_cents: purchase.amountPaid,
-          reason: snippet(refund.reason),
+          reason: snippet(refundRequest.reason),
           url: "/admin/refunds",
         },
       });
@@ -291,6 +298,8 @@ export function archiveOpenRefundRequestNotifications(
 
 const deciders = alias(users, "deciders");
 
+type Decision = RefundStatus.Approved | RefundStatus.Declined;
+
 /**
  * A decided Refund Request with what its Notification shows, or null when it
  * doesn't exist or wasn't decided that way.
@@ -298,7 +307,7 @@ const deciders = alias(users, "deciders");
 function findDecidedRefundRequest(
   db: Db,
   refundRequestId: number,
-  decision: RefundStatus.Approved | RefundStatus.Declined
+  decision: Decision
 ) {
   const decided = db
     .select({
@@ -345,28 +354,14 @@ export function notifyRefundRequestApproved(
   db: Db,
   refundRequestId: number
 ): Promise<void> {
-  return fireAndForget(
-    { workflow: "refund-request-approved", domainId: refundRequestId },
-    async () => {
-      const decided = findDecidedRefundRequest(
-        db,
-        refundRequestId,
-        RefundStatus.Approved
-      );
-      if (!decided || decided.refundRequest.amountRefunded === null) return;
-
-      await sendNotification(gateway, {
-        workflow: "refund-request-approved",
-        domainId: refundRequestId,
-        recipients: [decided.buyer],
-        actor: decided.platformAdmin,
-        data: {
-          ...decided.data,
-          amount_cents: decided.refundRequest.amountRefunded,
-        },
-      });
-    }
-  );
+  return notifyRefundRequestDecision(gateway, db, refundRequestId, {
+    workflow: "refund-request-approved",
+    decision: RefundStatus.Approved,
+    data: ({ refundRequest, data }) =>
+      refundRequest.amountRefunded === null
+        ? null
+        : { ...data, amount_cents: refundRequest.amountRefunded },
+  });
 }
 
 /**
@@ -379,25 +374,49 @@ export function notifyRefundRequestDeclined(
   db: Db,
   refundRequestId: number
 ): Promise<void> {
-  return fireAndForget(
-    { workflow: "refund-request-declined", domainId: refundRequestId },
-    async () => {
-      const decided = findDecidedRefundRequest(
-        db,
-        refundRequestId,
-        RefundStatus.Declined
-      );
-      if (!decided) return;
+  return notifyRefundRequestDecision(gateway, db, refundRequestId, {
+    workflow: "refund-request-declined",
+    decision: RefundStatus.Declined,
+    data: ({ data }) => data,
+  });
+}
 
-      await sendNotification(gateway, {
-        workflow: "refund-request-declined",
-        domainId: refundRequestId,
-        recipients: [decided.buyer],
-        actor: decided.platformAdmin,
-        data: decided.data,
-      });
-    }
-  );
+type DecidedRefundRequest = NonNullable<
+  ReturnType<typeof findDecidedRefundRequest>
+>;
+
+/**
+ * Tells the buyer about a Platform Admin's decision on their Refund Request,
+ * with the deciding Platform Admin as the actor. Nothing is sent when the
+ * Refund Request wasn't decided that way, or `data` returns null.
+ */
+function notifyRefundRequestDecision<
+  W extends "refund-request-approved" | "refund-request-declined",
+>(
+  gateway: NotificationGateway,
+  db: Db,
+  refundRequestId: number,
+  notification: {
+    workflow: W;
+    decision: Decision;
+    data: (decided: DecidedRefundRequest) => TriggerDataFor<W> | null;
+  }
+): Promise<void> {
+  const { workflow, decision } = notification;
+  return fireAndForget({ workflow, domainId: refundRequestId }, async () => {
+    const decided = findDecidedRefundRequest(db, refundRequestId, decision);
+    if (!decided) return;
+    const data = notification.data(decided);
+    if (!data) return;
+
+    await sendNotification(gateway, {
+      workflow,
+      domainId: refundRequestId,
+      recipients: [decided.buyer],
+      actor: decided.platformAdmin,
+      data,
+    });
+  });
 }
 
 // ─── Claimed Seat ───
@@ -436,7 +455,7 @@ export function notifySeatClaimed(
 
       const licenceSeats = getSeats(db, claim.seat.purchaseId);
       const unclaimedSeats = licenceSeats.filter(
-        (seat) => seat.redeemedAt === null && seat.refundedAt === null
+        (seat) => !isClaimed(seat) && seat.refundedAt === null
       ).length;
 
       await sendNotification(gateway, {
@@ -474,7 +493,7 @@ export function notifyNewEnrollment(
   return fireAndForget(
     { workflow: "new-enrollment", domainId: enrollmentId },
     async () => {
-      const found = db
+      const newEnrollment = db
         .select({
           enrollment: enrollments,
           student: users,
@@ -487,109 +506,20 @@ export function notifyNewEnrollment(
         .innerJoin(instructors, eq(courses.instructorId, instructors.id))
         .where(eq(enrollments.id, enrollmentId))
         .get();
-      if (!found) return;
+      if (!newEnrollment) return;
 
       await sendNotification(gateway, {
         workflow: "new-enrollment",
-        domainId: found.enrollment.id,
-        recipients: [found.instructor],
-        actor: found.student,
+        domainId: newEnrollment.enrollment.id,
+        recipients: [newEnrollment.instructor],
+        actor: newEnrollment.student,
         data: {
-          enrollment_id: found.enrollment.id,
-          course_id: found.course.id,
-          course_title: found.course.title,
-          url: `/instructor/${found.course.id}/students`,
+          enrollment_id: newEnrollment.enrollment.id,
+          course_id: newEnrollment.course.id,
+          course_title: newEnrollment.course.title,
+          url: `/instructor/${newEnrollment.course.id}/students`,
         },
       });
     }
   );
-}
-
-// ─── Feed user token ───
-// Knock's enhanced security mode only lets the browser read a Notification
-// Feed with a token Cadence signed for that user. Signing is local crypto, not
-// a gateway call.
-
-/** How long a feed user token lasts. */
-const USER_TOKEN_LIFETIME_SECONDS = 60 * 60;
-
-/**
- * A token is reused until fewer than this many seconds remain, so the browser
- * never gets one that is about to expire.
- */
-const USER_TOKEN_RENEW_BEFORE_SECONDS = 10 * 60;
-
-export type UserToken = {
-  token: string;
-  /** Seconds since the epoch, like the token's `exp` claim. */
-  expiresAt: number;
-};
-
-/** Feed user tokens already issued, by Cadence user id. */
-export type UserTokens = Map<number, UserToken>;
-
-/**
- * The user's feed token. Reuses the one already issued until it is about to
- * expire; otherwise asks Knock to identify the user (name and email) and signs
- * a new one, so there is one identification per token issued, not per request.
- * Keyed by user, so switching users in DevUI gets that user's token.
- *
- * The token never waits on Knock: identifying is started, not awaited, and the
- * token is signed straight away. If identifying fails, the error is logged.
- */
-export function feedUserToken(
-  gateway: NotificationGateway,
-  tokens: UserTokens,
-  { user, signingKey, now }: { user: Person; signingKey: string; now: Date }
-): UserToken {
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-  const issued = tokens.get(user.id);
-  if (
-    issued &&
-    issued.expiresAt - nowSeconds > USER_TOKEN_RENEW_BEFORE_SECONDS
-  ) {
-    return issued;
-  }
-
-  gateway.identifyUser(knockUser(user)).catch((error: unknown) => {
-    console.error(`Could not identify user ${user.id} to Knock`, error);
-  });
-
-  const userToken = signUserToken(user.id, signingKey, nowSeconds);
-  tokens.set(user.id, userToken);
-  return userToken;
-}
-
-/**
- * Signs an RS256 JWT whose `sub` is the Cadence user id as a string, the shape
- * Knock expects. `signingKey` is the PKCS#8 private key as PEM, or as
- * base64-encoded PEM (how KNOCK_SIGNING_KEY holds it).
- */
-function signUserToken(
-  userId: number,
-  signingKey: string,
-  nowSeconds: number
-): UserToken {
-  const expiresAt = nowSeconds + USER_TOKEN_LIFETIME_SECONDS;
-  const header = base64url({ alg: "RS256", typ: "JWT" });
-  const claims = base64url({
-    sub: String(userId),
-    iat: nowSeconds,
-    exp: expiresAt,
-  });
-  const signature = sign(
-    "RSA-SHA256",
-    Buffer.from(`${header}.${claims}`),
-    privateKeyPem(signingKey)
-  ).toString("base64url");
-  return { token: `${header}.${claims}.${signature}`, expiresAt };
-}
-
-function base64url(json: object) {
-  return Buffer.from(JSON.stringify(json)).toString("base64url");
-}
-
-function privateKeyPem(signingKey: string) {
-  if (signingKey.includes("-----BEGIN")) return signingKey;
-  return Buffer.from(signingKey, "base64").toString("utf8");
 }

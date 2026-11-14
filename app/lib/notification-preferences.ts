@@ -8,6 +8,7 @@ import type { CategoryKey } from "~/lib/notification-keys";
 /** Facts from Cadence's database that decide which switches a person sees. */
 export type NotificationPreferenceFacts = {
   role: UserRole;
+  /** Owns a Team Licence without an Approved Refund Request. */
   ownsTeamLicence: boolean;
 };
 

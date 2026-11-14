@@ -9,9 +9,9 @@ import { existsSync } from "node:fs";
 
 let loaded = false;
 
-export function loadEnvFile(path = ".env") {
+export function loadEnvFile() {
   if (loaded) return;
   loaded = true;
   if (process.env.VITEST) return;
-  if (existsSync(path)) process.loadEnvFile(path);
+  if (existsSync(".env")) process.loadEnvFile(".env");
 }
