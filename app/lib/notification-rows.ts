@@ -3,7 +3,7 @@ import {
   type ContractWorkflow,
   type TriggerDataFor,
 } from "~/lib/notification-trigger-data";
-import { formatRelativeTime } from "~/lib/utils";
+import { formatPrice, formatRelativeTime } from "~/lib/utils";
 
 // ─── Notification rows ───
 // Turns a Notification Feed item into what one row of the bell shows, in
@@ -62,6 +62,15 @@ const renderers: {
     ],
     url: data.url,
   }),
+  "open-refund-request": (data, actorName) => ({
+    icon: "open-refund-request",
+    title: `${actorName} raised a Refund Request`,
+    details: [
+      `${data.course_title} · ${PURCHASE_KINDS[data.purchase_kind]} · ${formatPrice(data.amount_cents)} paid`,
+      quote(data.reason),
+    ],
+    url: data.url,
+  }),
   "seat-claimed": (data, actorName) => ({
     icon: "seat-claimed",
     title: `${actorName} claimed a Seat`,
@@ -77,6 +86,14 @@ const renderers: {
     details: [],
     url: data.url,
   }),
+};
+
+const PURCHASE_KINDS: Record<
+  TriggerDataFor<"open-refund-request">["purchase_kind"],
+  string
+> = {
+  individual_purchase: "Individual Purchase",
+  team_licence: "Team Licence",
 };
 
 const fallback: RowContent = {

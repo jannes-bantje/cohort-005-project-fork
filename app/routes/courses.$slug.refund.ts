@@ -8,6 +8,8 @@ import { eq } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { raiseRefundRequest } from "~/lib/refunds.server";
 import { sendEmail } from "~/lib/mailer.server";
+import { notificationGateway } from "~/lib/knock.server";
+import { notifyOpenRefundRequest } from "~/lib/notifications.server";
 
 const refundParamsSchema = z.object({
   slug: z.string().min(1),
@@ -71,6 +73,13 @@ export async function action({ params, request }: Route.ActionArgs) {
   if (!result.ok) {
     throw data(result.error, { status: result.status });
   }
+
+  // Not awaited: Knock never holds up or fails raising a Refund Request.
+  void notifyOpenRefundRequest(
+    notificationGateway(),
+    db,
+    result.refundRequestId
+  );
 
   await sendEmail(result.email);
 
