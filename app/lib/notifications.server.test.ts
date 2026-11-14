@@ -100,7 +100,7 @@ describe("notifyDiscussionReply", () => {
           },
           data: {
             comment_id: 2,
-            question_comment_id: 1,
+            discussion_question_id: 1,
             lesson_id: 1,
             course_id: 1,
             course_title: "Test Course",
@@ -147,7 +147,7 @@ describe("notifyDiscussionReply", () => {
           },
           data: {
             comment_id: 3,
-            question_comment_id: 1,
+            discussion_question_id: 1,
             lesson_id: 1,
             course_id: 1,
             course_title: "Test Course",
@@ -183,7 +183,7 @@ describe("notifyDiscussionReply", () => {
           actor: { id: "4", name: "James Park", email: "james@example.com" },
           data: {
             comment_id: 2,
-            question_comment_id: 1,
+            discussion_question_id: 1,
             lesson_id: 1,
             course_id: 1,
             course_title: "Test Course",

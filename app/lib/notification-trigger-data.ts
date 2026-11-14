@@ -36,7 +36,7 @@ const snippetText = z.string().max(MAX_SNIPPET_LENGTH);
 
 const discussionReplyData = z.object({
   comment_id: id,
-  question_comment_id: id,
+  discussion_question_id: id,
   lesson_id: id,
   course_id: id,
   course_title: z.string(),

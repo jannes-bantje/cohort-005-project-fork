@@ -99,7 +99,7 @@ function lessonUrl(courseSlug: string, lessonId: number) {
 
 // ─── Discussion Reply ───
 
-const questions = alias(comments, "questions");
+const discussionQuestions = alias(comments, "discussion_questions");
 const questionAuthors = alias(users, "question_authors");
 
 /**
@@ -110,28 +110,34 @@ const questionAuthors = alias(users, "question_authors");
 export function notifyDiscussionReply(
   gateway: NotificationGateway,
   db: Db,
-  replyId: number
+  discussionReplyId: number
 ): Promise<void> {
   return fireAndForget(
-    { workflow: "discussion-reply", domainId: replyId },
+    { workflow: "discussion-reply", domainId: discussionReplyId },
     async () => {
       const reply = db
         .select({
           comment: comments,
-          question: questions,
+          question: discussionQuestions,
           replier: users,
           questionAuthor: questionAuthors,
           lesson: lessons,
           course: courses,
         })
         .from(comments)
-        .innerJoin(questions, eq(comments.parentId, questions.id))
+        .innerJoin(
+          discussionQuestions,
+          eq(comments.parentId, discussionQuestions.id)
+        )
         .innerJoin(users, eq(comments.userId, users.id))
-        .innerJoin(questionAuthors, eq(questions.userId, questionAuthors.id))
+        .innerJoin(
+          questionAuthors,
+          eq(discussionQuestions.userId, questionAuthors.id)
+        )
         .innerJoin(lessons, eq(comments.lessonId, lessons.id))
         .innerJoin(modules, eq(lessons.moduleId, modules.id))
         .innerJoin(courses, eq(modules.courseId, courses.id))
-        .where(eq(comments.id, replyId))
+        .where(eq(comments.id, discussionReplyId))
         .get();
       if (!reply) return;
 
@@ -142,7 +148,7 @@ export function notifyDiscussionReply(
         actor: reply.replier,
         data: {
           comment_id: reply.comment.id,
-          question_comment_id: reply.question.id,
+          discussion_question_id: reply.question.id,
           lesson_id: reply.lesson.id,
           course_id: reply.course.id,
           course_title: reply.course.title,
