@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import Knock, {
+  NetworkStatus,
   type Feed,
+  type FeedEventPayload,
   type FeedItem,
   type FeedStoreState,
 } from "@knocklabs/client";
-import { Bell, MessageSquareReply, type LucideIcon } from "lucide-react";
+import { Bell, MessageSquareReply, X, type LucideIcon } from "lucide-react";
 import type { NotificationFeedAuth } from "~/lib/knock.server";
 import {
   notificationRow,
@@ -13,6 +15,8 @@ import {
   type NotificationRow,
   type NotificationRowIcon,
 } from "~/lib/notification-rows";
+import { POP_UP_LIFETIME_MS, stackPopUps } from "~/lib/notification-pop-ups";
+import { Button } from "~/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -42,75 +46,202 @@ const ICONS: Record<NotificationRowIcon, { Icon: LucideIcon; tint: string }> = {
 export function NotificationBell({ auth }: { auth: NotificationFeedAuth }) {
   const { feed, state } = useNotificationFeed(auth);
   const [open, setOpen] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const { popUps, dismissPopUp, clearPopUps } = useNotificationPopUps(
+    feed,
+    open
+  );
 
   const items = state?.items ?? [];
-  const badge = unseenBadge(state?.metadata.unseen_count ?? 0);
+  const failed = state?.networkStatus === NetworkStatus.error;
   const loading = !state || (state.loading && items.length === 0);
+  // When the feed can't load, the badge hides rather than show a stale count.
+  const badge = failed ? null : unseenBadge(state?.metadata.unseen_count ?? 0);
+  const anyUnread =
+    (state?.metadata.unread_count ?? 0) > 0 ||
+    items.some((item) => !item.read_at);
+  const shownItems = unreadOnly ? items.filter((item) => !item.read_at) : items;
+
+  /** Refetches the feed, then marks everything seen unless it failed to load. */
+  function refresh() {
+    if (!feed) return;
+    void feed.fetch().then((result) => {
+      if (result?.status !== "error") void feed.markAllAsSeen();
+    });
+  }
 
   function onOpenChange(next: boolean) {
     setOpen(next);
-    if (next && feed) {
-      // Refetch so the popover is current, then mark everything seen.
-      void feed.fetch().then(() => feed.markAllAsSeen());
+    if (next) {
+      clearPopUps();
+      refresh();
     }
   }
 
-  function onRowClick(item: FeedItem) {
+  /** Clicking a row or a pop-up marks it read; its link does the navigating. */
+  function markRead(item: FeedItem) {
     if (feed && !item.read_at) void feed.markAsRead(item);
-    setOpen(false);
   }
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger
-        className="relative ml-auto rounded-md p-1.5 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        aria-label={badge ? `Notifications (${badge} unseen)` : "Notifications"}
-      >
-        <Bell className="size-5" />
-        {badge && (
-          <span className="absolute -top-1 -right-1.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
-            {badge}
-          </span>
-        )}
-      </PopoverTrigger>
-      <PopoverContent
-        side="right"
-        align="start"
-        sideOffset={12}
-        className="w-96 p-0"
-      >
-        <div className="border-b px-4 py-3">
-          <h2 className="text-sm font-semibold">Notifications</h2>
-        </div>
-        {loading ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Loading…
-          </p>
-        ) : items.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            You're all caught up.
-          </p>
-        ) : (
-          <ul className="max-h-[28rem] divide-y overflow-y-auto">
-            {items.map((item) => (
-              <li key={item.id}>
-                <NotificationRowView
-                  row={notificationRow({
-                    workflow: item.source.key,
-                    data: item.data,
-                    actorName: actorName(item),
-                    insertedAt: item.inserted_at,
-                  })}
-                  unread={!item.read_at}
-                  onClick={() => onRowClick(item)}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </PopoverContent>
-    </Popover>
+    <div className="relative ml-auto">
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger
+          className="relative rounded-md p-1.5 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          aria-label={
+            badge ? `Notifications (${badge} unseen)` : "Notifications"
+          }
+        >
+          <Bell className="size-5" />
+          {badge && (
+            <span className="absolute -top-1 -right-1.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground">
+              {badge}
+            </span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent
+          side="right"
+          align="start"
+          sideOffset={12}
+          className="w-96 p-0"
+        >
+          <div className="flex items-center gap-3 border-b px-4 py-3">
+            <h2 className="text-sm font-semibold">Notifications</h2>
+            <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={unreadOnly}
+                onChange={(event) => setUnreadOnly(event.target.checked)}
+                className="accent-primary"
+              />
+              Unread only
+            </label>
+            <Button
+              variant="link"
+              size="xs"
+              className="px-0"
+              disabled={failed || !anyUnread}
+              onClick={() => void feed?.markAllAsRead()}
+            >
+              Mark all as read
+            </Button>
+          </div>
+          {failed ? (
+            <div className="flex flex-col items-center gap-3 px-4 py-8">
+              <p className="text-sm text-muted-foreground">
+                Couldn't load Notifications
+              </p>
+              <Button variant="outline" size="sm" onClick={refresh}>
+                Retry
+              </Button>
+            </div>
+          ) : loading ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              Loading…
+            </p>
+          ) : shownItems.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              You're all caught up.
+            </p>
+          ) : (
+            <ul className="max-h-[28rem] divide-y overflow-y-auto">
+              {shownItems.map((item) => (
+                <li key={item.id}>
+                  <NotificationRowView
+                    row={rowFor(item)}
+                    unread={!item.read_at}
+                    onClick={() => {
+                      markRead(item);
+                      setOpen(false);
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="border-t px-4 py-2 text-right">
+            <Link
+              to="/settings#notifications"
+              onClick={() => setOpen(false)}
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Notification Preferences
+            </Link>
+          </div>
+        </PopoverContent>
+      </Popover>
+      {!open && popUps.length > 0 && (
+        <ol
+          aria-live="polite"
+          className="absolute top-0 left-full z-40 ml-3 w-80 space-y-2"
+        >
+          {popUps.map((item) => (
+            <li key={item.id}>
+              <NotificationPopUp
+                row={rowFor(item)}
+                onOpen={() => {
+                  markRead(item);
+                  dismissPopUp(item.id);
+                }}
+                onDismiss={() => dismissPopUp(item.id)}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
+}
+
+/**
+ * A Notification that arrived while the popover was closed, beside the bell.
+ * It goes after about six seconds or on ×, and leaves seen and read state
+ * alone. Clicking it opens it like a row.
+ */
+function NotificationPopUp({
+  row,
+  onOpen,
+  onDismiss,
+}: {
+  row: NotificationRow;
+  onOpen: () => void;
+  onDismiss: () => void;
+}) {
+  const dismissRef = useRef(onDismiss);
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => dismissRef.current(), POP_UP_LIFETIME_MS);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  return (
+    <div className="flex items-start overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-left-2">
+      <div className="min-w-0 flex-1">
+        <NotificationRowView row={row} unread onClick={onOpen} />
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="m-2 text-muted-foreground"
+        aria-label="Close"
+        onClick={onDismiss}
+      >
+        <X />
+      </Button>
+    </div>
+  );
+}
+
+function rowFor(item: FeedItem): NotificationRow {
+  return notificationRow({
+    workflow: item.source.key,
+    data: item.data,
+    actorName: actorName(item),
+    insertedAt: item.inserted_at,
+  });
 }
 
 function NotificationRowView({
@@ -180,6 +311,38 @@ function actorName(item: FeedItem): string | null {
   return actor && "name" in actor && typeof actor.name === "string"
     ? actor.name
     : null;
+}
+
+/**
+ * The pop-ups beside the bell. Notifications that arrive in real time while
+ * the popover is closed stack up, newest first and at most three; the
+ * popover being open shows them in the feed instead.
+ */
+function useNotificationPopUps(feed: Feed | null, open: boolean) {
+  const [popUps, setPopUps] = useState<FeedItem[]>([]);
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (!feed) return;
+    function onReceived({ items }: FeedEventPayload) {
+      if (!openRef.current) setPopUps((showing) => stackPopUps(showing, items));
+    }
+    feed.on("items.received.realtime", onReceived);
+    return () => {
+      feed.off("items.received.realtime", onReceived);
+      setPopUps([]);
+    };
+  }, [feed]);
+
+  return {
+    popUps,
+    dismissPopUp: (id: string) =>
+      setPopUps((showing) => showing.filter((item) => item.id !== id)),
+    clearPopUps: () => setPopUps([]),
+  };
 }
 
 /**
