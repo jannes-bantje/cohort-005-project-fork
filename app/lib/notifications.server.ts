@@ -86,8 +86,34 @@ async function sendNotification<W extends ContractWorkflow>(
   });
 }
 
-function lessonUrl(courseSlug: string, lessonId: number) {
-  return `/courses/${courseSlug}/lessons/${lessonId}`;
+// ─── Discussions ───
+
+const instructors = alias(users, "instructors");
+
+/** The lesson a Discussion is on, with its course and the course's Instructor. */
+function findDiscussionLesson(db: Db, lessonId: number) {
+  return db
+    .select({ lesson: lessons, course: courses, instructor: instructors })
+    .from(lessons)
+    .innerJoin(modules, eq(lessons.moduleId, modules.id))
+    .innerJoin(courses, eq(modules.courseId, courses.id))
+    .innerJoin(instructors, eq(courses.instructorId, instructors.id))
+    .where(eq(lessons.id, lessonId))
+    .get();
+}
+
+/** Where a Discussion Notification points: the lesson and its course. */
+function discussionLessonData({
+  lesson,
+  course,
+}: NonNullable<ReturnType<typeof findDiscussionLesson>>) {
+  return {
+    lesson_id: lesson.id,
+    course_id: course.id,
+    course_title: course.title,
+    lesson_title: lesson.title,
+    url: `/courses/${course.slug}/lessons/${lesson.id}`,
+  };
 }
 
 // ─── Discussion Reply ───
@@ -114,8 +140,6 @@ export function notifyDiscussionReply(
           question: discussionQuestions,
           replier: users,
           questionAuthor: questionAuthors,
-          lesson: lessons,
-          course: courses,
         })
         .from(comments)
         .innerJoin(
@@ -127,12 +151,11 @@ export function notifyDiscussionReply(
           questionAuthors,
           eq(discussionQuestions.userId, questionAuthors.id)
         )
-        .innerJoin(lessons, eq(comments.lessonId, lessons.id))
-        .innerJoin(modules, eq(lessons.moduleId, modules.id))
-        .innerJoin(courses, eq(modules.courseId, courses.id))
         .where(eq(comments.id, discussionReplyId))
         .get();
       if (!reply) return;
+      const discussionLesson = findDiscussionLesson(db, reply.comment.lessonId);
+      if (!discussionLesson) return;
 
       await sendNotification(gateway, {
         workflow: "discussion-reply",
@@ -142,12 +165,8 @@ export function notifyDiscussionReply(
         data: {
           comment_id: reply.comment.id,
           discussion_question_id: reply.question.id,
-          lesson_id: reply.lesson.id,
-          course_id: reply.course.id,
-          course_title: reply.course.title,
-          lesson_title: reply.lesson.title,
           excerpt: snippet(reply.comment.body),
-          url: lessonUrl(reply.course.slug, reply.lesson.id),
+          ...discussionLessonData(discussionLesson),
         },
       });
     }
@@ -155,8 +174,6 @@ export function notifyDiscussionReply(
 }
 
 // ─── Discussion Question ───
-
-const instructors = alias(users, "instructors");
 
 /**
  * Tells the course's Instructor that someone else asked a Discussion Question
@@ -172,36 +189,27 @@ export function notifyDiscussionQuestion(
     { workflow: "discussion-question", domainId: commentId },
     async () => {
       const question = db
-        .select({
-          comment: comments,
-          asker: users,
-          instructor: instructors,
-          lesson: lessons,
-          course: courses,
-        })
+        .select({ comment: comments, asker: users })
         .from(comments)
         .innerJoin(users, eq(comments.userId, users.id))
-        .innerJoin(lessons, eq(comments.lessonId, lessons.id))
-        .innerJoin(modules, eq(lessons.moduleId, modules.id))
-        .innerJoin(courses, eq(modules.courseId, courses.id))
-        .innerJoin(instructors, eq(courses.instructorId, instructors.id))
         .where(eq(comments.id, commentId))
         .get();
       if (!question) return;
+      const discussionLesson = findDiscussionLesson(
+        db,
+        question.comment.lessonId
+      );
+      if (!discussionLesson) return;
 
       await sendNotification(gateway, {
         workflow: "discussion-question",
         domainId: question.comment.id,
-        recipients: [question.instructor],
+        recipients: [discussionLesson.instructor],
         actor: question.asker,
         data: {
           comment_id: question.comment.id,
-          lesson_id: question.lesson.id,
-          course_id: question.course.id,
-          course_title: question.course.title,
-          lesson_title: question.lesson.title,
           excerpt: snippet(question.comment.body),
-          url: lessonUrl(question.course.slug, question.lesson.id),
+          ...discussionLessonData(discussionLesson),
         },
       });
     }
