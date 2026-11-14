@@ -53,6 +53,15 @@ const renderers: {
     ],
     url: data.url,
   }),
+  "discussion-question": (data, actorName) => ({
+    icon: "discussion-question",
+    title: `${actorName} asked a Discussion Question`,
+    details: [
+      `${data.course_title} · ${data.lesson_title}`,
+      quote(data.excerpt),
+    ],
+    url: data.url,
+  }),
 };
 
 const fallback: RowContent = {
