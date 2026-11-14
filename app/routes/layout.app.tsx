@@ -5,6 +5,7 @@ import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
+import { notificationsEnabled } from "~/lib/knock.server";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { db } from "~/db";
 import {
@@ -213,6 +214,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    notificationsEnabled: notificationsEnabled(),
   };
 }
 
