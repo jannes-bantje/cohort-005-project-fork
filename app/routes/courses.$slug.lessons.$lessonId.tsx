@@ -5,6 +5,8 @@ import type { Route } from "./+types/courses.$slug.lessons.$lessonId";
 import { getCurrentUserId } from "~/lib/session";
 import { getAccess, requireContentAccess } from "~/lib/access.server";
 import { renderComment } from "~/lib/comment-markdown.server";
+import { notificationGateway } from "~/lib/knock.server";
+import { notifyDiscussionReply } from "~/lib/notifications.server";
 import {
   CommentThread,
   type RenderedComment,
@@ -900,12 +902,16 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!parsed.success) {
           return { ok: false, error: "Enter a comment before posting." };
         }
-        createComment(
+        const comment = createComment(
           currentUserId,
           lessonId,
           parsed.data.parentId ?? null,
           parsed.data.body
         );
+        // Not awaited: Knock never holds up or fails posting a comment.
+        if (comment.parentId !== null) {
+          void notifyDiscussionReply(notificationGateway(), db, comment.id);
+        }
         return { ok: true };
       }
 

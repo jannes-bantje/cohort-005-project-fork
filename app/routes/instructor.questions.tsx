@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { Route } from "./+types/instructor.questions";
 import { requireInstructorOrAdmin, requireStaff } from "~/lib/access.server";
 import { renderComment } from "~/lib/comment-markdown.server";
+import { notificationGateway } from "~/lib/knock.server";
+import { notifyDiscussionReply } from "~/lib/notifications.server";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -207,8 +209,9 @@ export async function action({ request }: Route.ActionArgs) {
   // instructor, or an admin.
   const access = await requireStaff(request, course.courseId);
 
+  let reply;
   try {
-    createComment(
+    reply = createComment(
       access.userId!,
       question.lessonId,
       question.id,
@@ -220,6 +223,9 @@ export async function action({ request }: Route.ActionArgs) {
     }
     throw error;
   }
+
+  // Not awaited: Knock never holds up or fails posting a Discussion Reply.
+  void notifyDiscussionReply(notificationGateway(), db, reply.id);
 
   return { ok: true };
 }
