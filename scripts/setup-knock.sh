@@ -242,7 +242,7 @@ ask_long_secret() {
 
 run_wizard() {
 
-TOTAL_STAGES=6
+TOTAL_STAGES=7
 
 # .env lives at the repo root, wherever the wizard is run from.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -323,6 +323,23 @@ write_env KNOCK_FEED_CHANNEL_ID "$KNOCK_FEED_CHANNEL_ID"
 pause
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
+stage "Service token for knock:setup"
+say "npm run knock:setup creates Cadence's workflows and preference categories in"
+say "your account through Knock's Management API, which needs a service token."
+say "Only that script uses it: the app itself never does."
+open_url "https://dashboard.knock.app"
+step "Open your account settings (your account name in the top left) → Service tokens."
+step "Create a service token named 'Cadence knock:setup' and copy it."
+warn "Knock shows the token only once. Copy it before you close the dialog."
+ask_secret KNOCK_SERVICE_TOKEN "Paste the service token (hidden):" || exit 1
+until [[ -n "$KNOCK_SERVICE_TOKEN" ]]; do
+  warn "Nothing was pasted. Try again."
+  ask_secret KNOCK_SERVICE_TOKEN "Paste the service token (hidden):" || exit 1
+done
+write_env KNOCK_SERVICE_TOKEN "$KNOCK_SERVICE_TOKEN"
+pause
+
+# ── 7 ─────────────────────────────────────────────────────────────────────
 stage "Check the secret key"
 say "Asking Knock for a user that doesn't exist: 404 means the key works, 401 means it doesn't."
 code=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -340,7 +357,7 @@ esac
 pause
 
 finish
-note "Next: the Knock prototype uses these values."
+note "Next: run npm run knock:setup to create the workflows and preference categories."
 printf '\n'
 }
 

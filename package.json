@@ -19,10 +19,12 @@
     "db:seed": "tsx scripts/seed.ts",
     "seed-wayfinder-issues": "bash scripts/seed-wayfinder-issues.sh",
     "db:migrate": "drizzle-kit migrate",
+    "knock:setup": "tsx scripts/knock-setup.ts",
     "loc": "git ls-files | grep -vE '(lock|.db|_snapshot.json)' | xargs wc -l"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@knocklabs/node": "^1.41.1",
     "@monaco-editor/react": "^4.7.0",
     "@react-router/node": "8.3.0",
     "@react-router/serve": "8.3.0",
