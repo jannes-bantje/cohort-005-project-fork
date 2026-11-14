@@ -1,5 +1,5 @@
-import { useRef, useEffect } from "react";
-import { useFetcher } from "react-router";
+import { Suspense, useRef, useEffect, type ReactNode } from "react";
+import { Await, useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
 import type { Route } from "./+types/settings";
@@ -23,8 +23,8 @@ import {
   loadNotificationPreferences,
   saveNotificationPreference,
   type NotificationPreferenceSwitch,
-  type NotificationPreferencesCard,
 } from "~/lib/notification-preferences.server";
+import { Skeleton } from "~/components/ui/skeleton";
 import { Switch } from "~/components/ui/switch";
 
 const settingsSchema = z.discriminatedUnion("intent", [
@@ -68,9 +68,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
-  // Hidden entirely when Knock isn't configured.
+  // Hidden entirely when Knock isn't configured. Not awaited: the rest of
+  // Settings renders straight away and the Notifications card streams in.
   const notificationPreferences = notificationsEnabled()
-    ? await loadNotificationPreferences(notificationGateway(), db, currentUser)
+    ? loadNotificationPreferences(notificationGateway(), db, currentUser)
     : null;
 
   return {
@@ -223,7 +224,22 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
       </Card>
 
       {notificationPreferences && (
-        <NotificationsCard card={notificationPreferences} />
+        <NotificationsCard>
+          <Suspense fallback={<NotificationPreferencesSkeleton />}>
+            <Await
+              resolve={notificationPreferences}
+              errorElement={<NotificationPreferencesUnavailable />}
+            >
+              {(card) =>
+                card.available ? (
+                  <NotificationPreferenceList preferences={card.preferences} />
+                ) : (
+                  <NotificationPreferencesUnavailable />
+                )
+              }
+            </Await>
+          </Suspense>
+        </NotificationsCard>
       )}
 
       {refundRequests.length > 0 && (
@@ -277,7 +293,9 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   );
 }
 
-function NotificationsCard({ card }: { card: NotificationPreferencesCard }) {
+// The card renders straight away, so /settings#notifications has somewhere to
+// scroll to before the Notification Preferences arrive from Knock.
+function NotificationsCard({ children }: { children: ReactNode }) {
   return (
     <Card id="notifications" className="mt-8 max-w-md scroll-mt-8">
       <CardHeader>
@@ -287,24 +305,46 @@ function NotificationsCard({ card }: { card: NotificationPreferencesCard }) {
           only affects future Notifications.
         </p>
       </CardHeader>
-      <CardContent>
-        {card.available ? (
-          <ul className="space-y-4">
-            {card.preferences.map((preference) => (
-              <NotificationPreferenceRow
-                key={preference.category}
-                preference={preference}
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Notification Preferences aren't available right now. Try again
-            later.
-          </p>
-        )}
-      </CardContent>
+      <CardContent>{children}</CardContent>
     </Card>
+  );
+}
+
+function NotificationPreferencesSkeleton() {
+  return (
+    <ul className="space-y-4" aria-busy="true">
+      {[0, 1, 2].map((row) => (
+        <li key={row} className="flex items-center justify-between gap-3">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-5 w-9 rounded-full" />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function NotificationPreferencesUnavailable() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      Notification Preferences aren't available right now. Try again later.
+    </p>
+  );
+}
+
+function NotificationPreferenceList({
+  preferences,
+}: {
+  preferences: NotificationPreferenceSwitch[];
+}) {
+  return (
+    <ul className="space-y-4">
+      {preferences.map((preference) => (
+        <NotificationPreferenceRow
+          key={preference.category}
+          preference={preference}
+        />
+      ))}
+    </ul>
   );
 }
 
